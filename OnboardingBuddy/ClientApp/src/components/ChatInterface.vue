@@ -249,6 +249,9 @@ function triggerFileUpload() {
 function onFileSelected(event) {
   const files = Array.from(event.target.files)
   selectedFiles.value.push(...files)
+  
+  // Clear the input value to allow selecting the same file again
+  event.target.value = ''
 }
 
 function removeFile(index) {
