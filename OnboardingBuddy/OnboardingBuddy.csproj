@@ -33,6 +33,16 @@
     <None Include="$(SpaRoot)**" Exclude="$(SpaRoot)node_modules\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Remove="wwwroot\assets\index-BDnFJXWN.js" />
+    <Content Remove="wwwroot\assets\index-Dn3TkV5v.css" />
+    <Content Remove="wwwroot\index.html" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="wwwroot\index.html" />
+  </ItemGroup>
+
   <Target Name="DebugEnsureNodeEnv" BeforeTargets="Build" Condition=" '$(Configuration)' == 'Debug' And !Exists('$(SpaRoot)node_modules') ">
     <!-- Ensure Node.js is installed -->
     <Exec Command="node --version" ContinueOnError="true">
@@ -48,15 +58,10 @@
     <Message Importance="high" Text="========== Building Vue.js ClientApp ==========" />
     
     <!-- Ensure npm dependencies are installed -->
-    <Exec WorkingDirectory="$(SpaRoot)" 
-          Command="npm install" 
-          Condition="!Exists('$(SpaRoot)node_modules')" 
-          ContinueOnError="false" />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm install" Condition="!Exists('$(SpaRoot)node_modules')" ContinueOnError="false" />
     
     <!-- Build the client app -->
-    <Exec WorkingDirectory="$(SpaRoot)" 
-          Command="npm run build" 
-          ContinueOnError="false" />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" ContinueOnError="false" />
     
     <Message Importance="high" Text="========== ClientApp built successfully to wwwroot ==========" />
   </Target>

@@ -21,7 +21,7 @@ public class FileUploadService : IFileUploadService
     private readonly ILogger<FileUploadService> _logger;
     private readonly string _uploadsPath;
     private const long MaxFileSize = 10 * 1024 * 1024; // 10MB
-    private readonly string[] _allowedExtensions = { ".pdf", ".txt", ".doc", ".docx" };
+    private readonly string[] _allowedExtensions = { ".pdf", ".txt", ".doc", ".docx", ".png" };
 
     public FileUploadService(OnboardingDbContext context, ILogger<FileUploadService> logger, IWebHostEnvironment environment)
     {

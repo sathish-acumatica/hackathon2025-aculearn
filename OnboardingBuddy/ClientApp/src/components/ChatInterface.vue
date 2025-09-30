@@ -48,9 +48,10 @@
     
     <div class="chat-input-container">
       <div class="chat-input">
-        <input
+        <textarea
           v-model="newMessage"
           @keyup.enter="sendMessage"
+          @paste="handlePaste"
           type="text"
           placeholder="Ask me anything about your onboarding journey..."
           :disabled="isLoading"
@@ -293,6 +294,46 @@ async function initializeSignalR() {
 function generateMessageId() {
   return Date.now() + '_' + Math.random().toString(36).substr(2, 9)
 }
+
+async function handlePaste(e) {
+    console.log('Paste handled');
+    const clipboardData = e.clipboardData || window.clipboardData;
+
+    if (!clipboardData || !clipboardData.items) {
+        console.log('No clipboard data available');
+        return;
+    }
+
+    const items = clipboardData.items;
+    const files = [];
+
+    // Extract files from clipboard
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file) {
+                files.push(file);
+                console.log('File found in clipboard:', file.name, file.type);
+            }
+        }
+    }
+
+    // If files were found, add them to the FileUpload component
+    if (files.length > 0) {
+        console.log('Files found');
+        e.preventDefault(); // Prevent default paste behavior
+
+        // Create a mock event object that matches what FileUpload expects
+        const pastedFileContent = {
+            target: {
+                files: files
+            }
+        };
+
+        onFileSelected(pastedFileContent);
+    }
+} 
 
 async function sendMessage() {
   if (!newMessage.value.trim() && !selectedFiles.value.length) return
