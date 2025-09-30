@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <SpaRoot>ClientApp\</SpaRoot>
     <DefaultItemExcludes>$(DefaultItemExcludes);$(SpaRoot)node_modules\**</DefaultItemExcludes>
+    <UserSecretsId>d39b83f2-9d9d-4c38-9538-272342e7c33e</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

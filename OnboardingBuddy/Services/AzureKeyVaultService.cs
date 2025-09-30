@@ -18,7 +18,7 @@ public class AzureKeyVaultService : IAzureKeyVaultService
     private readonly AzureKeyVaultConfiguration _config;
     private readonly ILogger<AzureKeyVaultService> _logger;
     private SecretClient? _secretClient;
-    private ClientSecretCredential? _credential;
+    private TokenCredential? _credential;
     private string? _cachedApiKey;
     private string? _cachedAccessToken;
     private DateTime _tokenExpiry = DateTime.MinValue;
@@ -27,7 +27,7 @@ public class AzureKeyVaultService : IAzureKeyVaultService
     {
         _config = aiConfig.Value.AzureKeyVault ?? new AzureKeyVaultConfiguration();
         _logger = logger;
-        
+
         if (IsConfigured())
         {
             InitializeSecretClient();
@@ -54,14 +54,22 @@ public class AzureKeyVaultService : IAzureKeyVaultService
         try
         {
             var keyVaultUrl = $"https://{_config.KeyVaultName}.vault.azure.net/";
-            
-            _credential = new ClientSecretCredential(
-                _config.TenantId,
-                _config.ClientId,
-                _config.ClientSecret);
+
+            // use a service principal, this should be for local or on prem servers only
+            if (!string.IsNullOrEmpty(_config.ClientSecret))
+            {
+                _credential = new ClientSecretCredential(
+                    _config.TenantId,
+                    _config.ClientId,
+                    _config.ClientSecret);
+            }
+            else // use rbac managed identities
+            {
+                _credential = new DefaultAzureCredential();
+            }
 
             _secretClient = new SecretClient(new Uri(keyVaultUrl), _credential);
-            
+
             _logger.LogInformation("Azure Key Vault client initialized for vault: {KeyVaultName}", _config.KeyVaultName);
         }
         catch (Exception ex)
@@ -76,7 +84,7 @@ public class AzureKeyVaultService : IAzureKeyVaultService
     {
         if (!IsConfigured() || _secretClient == null)
         {
-            _logger.LogWarning("Azure Key Vault is not properly configured or client is not initialized. Configured: {IsConfigured}, Client: {HasClient}", 
+            _logger.LogWarning("Azure Key Vault is not properly configured or client is not initialized. Configured: {IsConfigured}, Client: {HasClient}",
                 IsConfigured(), _secretClient != null);
             return null;
         }
@@ -90,20 +98,20 @@ public class AzureKeyVaultService : IAzureKeyVaultService
 
         try
         {
-            _logger.LogInformation("Retrieving API key from Azure Key Vault. Vault: {KeyVaultName}, Secret: {SecretName}", 
+            _logger.LogInformation("Retrieving API key from Azure Key Vault. Vault: {KeyVaultName}, Secret: {SecretName}",
                 _config.KeyVaultName, _config.ApiKeySecretName);
-            
+
             var response = await _secretClient.GetSecretAsync(_config.ApiKeySecretName);
             _cachedApiKey = response.Value.Value;
-            
-            _logger.LogInformation("Successfully retrieved API key from Azure Key Vault (length: {Length}, starts with: {Prefix})", 
-                _cachedApiKey?.Length ?? 0, 
+
+            _logger.LogInformation("Successfully retrieved API key from Azure Key Vault (length: {Length}, starts with: {Prefix})",
+                _cachedApiKey?.Length ?? 0,
                 !string.IsNullOrEmpty(_cachedApiKey) ? _cachedApiKey.Substring(0, Math.Min(8, _cachedApiKey.Length)) : "null");
             return _cachedApiKey;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to retrieve API key from Azure Key Vault. Vault: {KeyVaultName}, Secret: {SecretName}, TenantId: {TenantId}, ClientId: {ClientId}", 
+            _logger.LogError(ex, "Failed to retrieve API key from Azure Key Vault. Vault: {KeyVaultName}, Secret: {SecretName}, TenantId: {TenantId}, ClientId: {ClientId}",
                 _config.KeyVaultName, _config.ApiKeySecretName, _config.TenantId, _config.ClientId);
             return null;
         }
@@ -127,13 +135,13 @@ public class AzureKeyVaultService : IAzureKeyVaultService
         try
         {
             _logger.LogInformation("Retrieving Azure access token...");
-            
+
             var tokenRequestContext = new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" });
-            var tokenResult = await _credential.GetTokenAsync(tokenRequestContext);
-            
+            var tokenResult = await _credential.GetTokenAsync(tokenRequestContext, CancellationToken.None);
+
             _cachedAccessToken = tokenResult.Token;
             _tokenExpiry = tokenResult.ExpiresOn.DateTime.AddMinutes(-5); // Refresh 5 minutes before expiry
-            
+
             _logger.LogInformation("Successfully retrieved Azure access token (expires: {Expiry})", _tokenExpiry);
             return _cachedAccessToken;
         }
