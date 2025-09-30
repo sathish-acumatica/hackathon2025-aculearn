@@ -2,25 +2,22 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using OnboardingBuddy.Api.Data;
+using OnboardingBuddy.Data;
 
 #nullable disable
 
-namespace OnboardingBuddy.Api.Migrations
+namespace OnboardingBuddy.Migrations
 {
     [DbContext(typeof(OnboardingDbContext))]
-    [Migration("20250930141827_InitialCreate")]
-    partial class InitialCreate
+    partial class OnboardingDbContextModelSnapshot : ModelSnapshot
     {
-        /// <inheritdoc />
-        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.0");
 
-            modelBuilder.Entity("OnboardingBuddy.Api.Models.FileUpload", b =>
+            modelBuilder.Entity("OnboardingBuddy.Models.FileUpload", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -74,7 +71,7 @@ namespace OnboardingBuddy.Api.Migrations
                     b.ToTable("FileUploads");
                 });
 
-            modelBuilder.Entity("OnboardingBuddy.Api.Models.TrainingMaterial", b =>
+            modelBuilder.Entity("OnboardingBuddy.Models.TrainingMaterial", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()

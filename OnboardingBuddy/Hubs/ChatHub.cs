@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
-using OnboardingBuddy.Api.Services;
+using OnboardingBuddy.Services;
 
-namespace OnboardingBuddy.Api.Hubs;
+namespace OnboardingBuddy.Hubs;
 
 public class ChatHub : Hub
 {

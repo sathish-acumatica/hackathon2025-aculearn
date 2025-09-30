@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
-using OnboardingBuddy.Api.Models;
-using OnboardingBuddy.Api.Services;
+using OnboardingBuddy.Models;
+using OnboardingBuddy.Services;
 
-namespace OnboardingBuddy.Api.Controllers;
+namespace OnboardingBuddy.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]

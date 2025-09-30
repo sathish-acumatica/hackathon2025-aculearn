@@ -1,11 +1,11 @@
-using OnboardingBuddy.Api.Models;
-using OnboardingBuddy.Api.Data;
+using OnboardingBuddy.Models;
+using OnboardingBuddy.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
 
-namespace OnboardingBuddy.Api.Services;
+namespace OnboardingBuddy.Services;
 
 public interface IFileUploadService
 {

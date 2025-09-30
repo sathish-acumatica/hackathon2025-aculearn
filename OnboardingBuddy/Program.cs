@@ -1,7 +1,7 @@
-using OnboardingBuddy.Api.Hubs;
-using OnboardingBuddy.Api.Services;
-using OnboardingBuddy.Api.Models;
-using OnboardingBuddy.Api.Data;
+using OnboardingBuddy.Hubs;
+using OnboardingBuddy.Services;
+using OnboardingBuddy.Models;
+using OnboardingBuddy.Data;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);

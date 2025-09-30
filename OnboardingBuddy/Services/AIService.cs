@@ -1,9 +1,9 @@
-using OnboardingBuddy.Api.Models;
+using OnboardingBuddy.Models;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
 
-namespace OnboardingBuddy.Api.Services;
+namespace OnboardingBuddy.Services;
 
 public interface IAIService
 {

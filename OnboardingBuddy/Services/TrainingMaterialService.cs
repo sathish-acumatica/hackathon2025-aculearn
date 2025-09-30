@@ -1,9 +1,9 @@
-using OnboardingBuddy.Api.Models;
-using OnboardingBuddy.Api.Data;
+using OnboardingBuddy.Models;
+using OnboardingBuddy.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
-namespace OnboardingBuddy.Api.Services;
+namespace OnboardingBuddy.Services;
 
 public interface ITrainingMaterialService
 {

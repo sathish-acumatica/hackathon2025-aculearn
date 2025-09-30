@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using OnboardingBuddy.Api.Models;
+using OnboardingBuddy.Models;
 
-namespace OnboardingBuddy.Api.Data;
+namespace OnboardingBuddy.Data;
 
 public class OnboardingDbContext : DbContext
 {

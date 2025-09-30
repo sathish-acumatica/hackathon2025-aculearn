@@ -1,7 +1,7 @@
-using OnboardingBuddy.Api.Models;
+using OnboardingBuddy.Models;
 using System.Collections.Concurrent;
 
-namespace OnboardingBuddy.Api.Services;
+namespace OnboardingBuddy.Services;
 
 public interface ISessionService
 {

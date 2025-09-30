@@ -1,4 +1,4 @@
-namespace OnboardingBuddy.Api.Models;
+namespace OnboardingBuddy.Models;
 
 public class ChatRequest
 {
