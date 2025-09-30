@@ -11,6 +11,7 @@ public class OnboardingDbContext : DbContext
 
     public DbSet<TrainingMaterial> TrainingMaterials { get; set; }
     public DbSet<FileUpload> FileUploads { get; set; }
+    public DbSet<TrainingMaterialAttachment> TrainingMaterialAttachments { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,15 +61,40 @@ public class OnboardingDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(100);
                 
-            entity.Property(e => e.FilePath)
+            entity.Property(e => e.FileContent)
                 .IsRequired()
-                .HasMaxLength(500);
+                .HasColumnType("varbinary(max)"); // Store binary data in SQL Server
+                
+            entity.Property(e => e.FilePath)
+                .HasMaxLength(500); // Make optional for backward compatibility
                 
             entity.Property(e => e.SessionId)
                 .HasMaxLength(100);
                 
             entity.HasIndex(e => e.SessionId);
             entity.HasIndex(e => e.UploadedAt);
+        });
+
+        // Configure TrainingMaterialAttachment entity
+        modelBuilder.Entity<TrainingMaterialAttachment>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.HasOne(e => e.TrainingMaterial)
+                .WithMany(t => t.Attachments)
+                .HasForeignKey(e => e.TrainingMaterialId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.FileUpload)
+                .WithMany(f => f.TrainingMaterialAttachments)
+                .HasForeignKey(e => e.FileUploadId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(e => e.Description)
+                .HasMaxLength(500);
+
+            entity.HasIndex(e => e.TrainingMaterialId);
+            entity.HasIndex(e => e.FileUploadId);
         });
 
         // Seed initial data

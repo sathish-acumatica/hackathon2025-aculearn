@@ -7,11 +7,14 @@ namespace OnboardingBuddy.Services;
 
 public interface ITrainingMaterialService
 {
-    Task<IEnumerable<TrainingMaterial>> GetAllAsync();
-    Task<TrainingMaterial?> GetByIdAsync(int id);
+    Task<IEnumerable<TrainingMaterialResponse>> GetAllAsync();
+    Task<TrainingMaterialResponse?> GetByIdAsync(int id);
     Task<TrainingMaterial> CreateAsync(TrainingMaterialRequest request);
+    Task<TrainingMaterial> CreateWithAttachmentsAsync(TrainingMaterialWithAttachmentsRequest request, IFileUploadService fileUploadService);
     Task<TrainingMaterial?> UpdateAsync(int id, TrainingMaterialRequest request);
+    Task<TrainingMaterial?> UpdateWithAttachmentsAsync(int id, TrainingMaterialWithAttachmentsRequest request, IFileUploadService fileUploadService);
     Task<bool> DeleteAsync(int id);
+    Task<bool> RemoveAttachmentAsync(int materialId, int attachmentId);
     Task<IEnumerable<TrainingMaterial>> SearchAsync(string query);
     Task<IEnumerable<TrainingMaterial>> GetByCategoryAsync(string category);
     Task<string> GetTrainingContextForAI(string userQuery);
@@ -29,16 +32,69 @@ public class TrainingMaterialService : ITrainingMaterialService
         _logger = logger;
     }
 
-    public async Task<IEnumerable<TrainingMaterial>> GetAllAsync()
+    public async Task<IEnumerable<TrainingMaterialResponse>> GetAllAsync()
     {
-        return await _context.TrainingMaterials
+        var materials = await _context.TrainingMaterials
+            .Include(m => m.Attachments)
+                .ThenInclude(a => a.FileUpload)
             .OrderBy(m => m.Title)
             .ToListAsync();
+
+        return materials.Select(m => new TrainingMaterialResponse
+        {
+            Id = m.Id,
+            Title = m.Title,
+            Category = m.Category,
+            Content = m.Content,
+            InternalNotes = m.InternalNotes,
+            IsActive = m.IsActive,
+            CreatedAt = m.CreatedAt,
+            UpdatedAt = m.UpdatedAt,
+            Attachments = m.Attachments.Select(a => new AttachmentInfo
+            {
+                Id = a.FileUpload.Id,
+                FileName = a.FileUpload.FileName,
+                OriginalFileName = a.FileUpload.OriginalFileName,
+                FileSizeBytes = a.FileUpload.FileSizeBytes,
+                ContentType = a.FileUpload.ContentType,
+                AttachedAt = a.AttachedAt,
+                Description = a.Description,
+                IsProcessed = a.FileUpload.IsProcessed
+            }).ToList()
+        });
     }
 
-    public async Task<TrainingMaterial?> GetByIdAsync(int id)
+    public async Task<TrainingMaterialResponse?> GetByIdAsync(int id)
     {
-        return await _context.TrainingMaterials.FindAsync(id);
+        var material = await _context.TrainingMaterials
+            .Include(m => m.Attachments)
+                .ThenInclude(a => a.FileUpload)
+            .FirstOrDefaultAsync(m => m.Id == id);
+
+        if (material == null) return null;
+
+        return new TrainingMaterialResponse
+        {
+            Id = material.Id,
+            Title = material.Title,
+            Category = material.Category,
+            Content = material.Content,
+            InternalNotes = material.InternalNotes,
+            IsActive = material.IsActive,
+            CreatedAt = material.CreatedAt,
+            UpdatedAt = material.UpdatedAt,
+            Attachments = material.Attachments.Select(a => new AttachmentInfo
+            {
+                Id = a.FileUpload.Id,
+                FileName = a.FileUpload.FileName,
+                OriginalFileName = a.FileUpload.OriginalFileName,
+                FileSizeBytes = a.FileUpload.FileSizeBytes,
+                ContentType = a.FileUpload.ContentType,
+                AttachedAt = a.AttachedAt,
+                Description = a.Description,
+                IsProcessed = a.FileUpload.IsProcessed
+            }).ToList()
+        };
     }
 
     public async Task<TrainingMaterial> CreateAsync(TrainingMaterialRequest request)
@@ -78,6 +134,119 @@ public class TrainingMaterialService : ITrainingMaterialService
         _logger.LogInformation("Updated training material: {Title}", material.Title);
         
         return material;
+    }
+
+    public async Task<TrainingMaterial> CreateWithAttachmentsAsync(TrainingMaterialWithAttachmentsRequest request, IFileUploadService fileUploadService)
+    {
+        var material = new TrainingMaterial
+        {
+            Title = request.Title,
+            Category = request.Category,
+            Content = request.Content,
+            InternalNotes = request.InternalNotes,
+            IsActive = request.IsActive,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.TrainingMaterials.Add(material);
+        await _context.SaveChangesAsync();
+
+        // Process file attachments
+        if (request.Files?.Any() == true)
+        {
+            var sessionId = $"training_material_{material.Id}_{DateTime.UtcNow.Ticks}";
+            var uploadResult = await fileUploadService.ProcessFilesAsync(request.Files, sessionId);
+
+            if (uploadResult.Success && uploadResult.UploadedFiles.Any())
+            {
+                // Get the uploaded file records
+                var uploadedFiles = await _context.FileUploads
+                    .Where(f => f.SessionId == sessionId)
+                    .ToListAsync();
+
+                // Create attachments
+                for (int i = 0; i < uploadedFiles.Count; i++)
+                {
+                    var attachment = new TrainingMaterialAttachment
+                    {
+                        TrainingMaterialId = material.Id,
+                        FileUploadId = uploadedFiles[i].Id,
+                        AttachedAt = DateTime.UtcNow,
+                        Description = request.AttachmentDescriptions?.ElementAtOrDefault(i)
+                    };
+
+                    _context.TrainingMaterialAttachments.Add(attachment);
+                }
+
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        _logger.LogInformation("Created training material with attachments: {Title}", material.Title);
+        return material;
+    }
+
+    public async Task<TrainingMaterial?> UpdateWithAttachmentsAsync(int id, TrainingMaterialWithAttachmentsRequest request, IFileUploadService fileUploadService)
+    {
+        var material = await _context.TrainingMaterials.FindAsync(id);
+        if (material == null) return null;
+
+        material.Title = request.Title;
+        material.Category = request.Category;
+        material.Content = request.Content;
+        material.InternalNotes = request.InternalNotes;
+        material.IsActive = request.IsActive;
+        material.UpdatedAt = DateTime.UtcNow;
+
+        // Process new file attachments
+        if (request.Files?.Any() == true)
+        {
+            var sessionId = $"training_material_{material.Id}_{DateTime.UtcNow.Ticks}";
+            var uploadResult = await fileUploadService.ProcessFilesAsync(request.Files, sessionId);
+
+            if (uploadResult.Success && uploadResult.UploadedFiles.Any())
+            {
+                // Get the uploaded file records
+                var uploadedFiles = await _context.FileUploads
+                    .Where(f => f.SessionId == sessionId)
+                    .ToListAsync();
+
+                // Create new attachments
+                for (int i = 0; i < uploadedFiles.Count; i++)
+                {
+                    var attachment = new TrainingMaterialAttachment
+                    {
+                        TrainingMaterialId = material.Id,
+                        FileUploadId = uploadedFiles[i].Id,
+                        AttachedAt = DateTime.UtcNow,
+                        Description = request.AttachmentDescriptions?.ElementAtOrDefault(i)
+                    };
+
+                    _context.TrainingMaterialAttachments.Add(attachment);
+                }
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        
+        _logger.LogInformation("Updated training material with attachments: {Title}", material.Title);
+        return material;
+    }
+
+    public async Task<bool> RemoveAttachmentAsync(int materialId, int attachmentId)
+    {
+        var attachment = await _context.TrainingMaterialAttachments
+            .Include(a => a.FileUpload)
+            .FirstOrDefaultAsync(a => a.TrainingMaterialId == materialId && a.FileUploadId == attachmentId);
+
+        if (attachment == null) return false;
+
+        _context.TrainingMaterialAttachments.Remove(attachment);
+        // Note: The FileUpload record will remain for potential reuse
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Removed attachment {AttachmentId} from training material {MaterialId}", attachmentId, materialId);
+        return true;
     }
 
     public async Task<bool> DeleteAsync(int id)
@@ -134,13 +303,15 @@ public class TrainingMaterialService : ITrainingMaterialService
         try
         {
             var materials = await _context.TrainingMaterials
+                .Include(m => m.Attachments)
+                    .ThenInclude(a => a.FileUpload)
                 .Where(m => m.IsActive)
                 .OrderBy(m => m.Category)
                 .ThenBy(m => m.Title)
                 .ToListAsync();
 
             var relevantMaterials = FilterRelevantMaterials(materials, userQuery);
-            var context = BuildContextString(relevantMaterials);
+            var context = BuildContextStringWithAttachments(relevantMaterials);
 
             _logger.LogInformation("Retrieved {Count} relevant materials for session {SessionId}", 
                 relevantMaterials.Count, sessionId);
@@ -203,5 +374,44 @@ public class TrainingMaterialService : ITrainingMaterialService
             $"**{m.Title}** (Category: {m.Category})\n{m.Content}"));
 
         return context;
+    }
+
+    private string BuildContextStringWithAttachments(List<TrainingMaterial> materials)
+    {
+        if (!materials.Any()) return string.Empty;
+
+        var contextParts = new List<string>();
+
+        foreach (var material in materials)
+        {
+            var materialContext = $"**{material.Title}** (Category: {material.Category})\n{material.Content}";
+
+            // Add attachment content if available
+            if (material.Attachments?.Any() == true)
+            {
+                var attachmentContents = new List<string>();
+                
+                foreach (var attachment in material.Attachments)
+                {
+                    if (attachment.FileUpload.IsProcessed && !string.IsNullOrEmpty(attachment.FileUpload.ProcessedContent))
+                    {
+                        var attachmentInfo = !string.IsNullOrEmpty(attachment.Description) 
+                            ? $"Attachment ({attachment.Description}): {attachment.FileUpload.OriginalFileName}"
+                            : $"Attachment: {attachment.FileUpload.OriginalFileName}";
+                        
+                        attachmentContents.Add($"\n\n{attachmentInfo}\n{attachment.FileUpload.ProcessedContent}");
+                    }
+                }
+
+                if (attachmentContents.Any())
+                {
+                    materialContext += string.Join("", attachmentContents);
+                }
+            }
+
+            contextParts.Add(materialContext);
+        }
+
+        return string.Join("\n\n", contextParts);
     }
 }

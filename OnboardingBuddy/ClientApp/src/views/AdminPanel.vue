@@ -66,6 +66,20 @@
             <div v-if="material.internalNotes" class="internal-notes">
               <strong>📝 Notes:</strong> {{ material.internalNotes }}
             </div>
+
+            <div v-if="material.attachments?.length" class="attachments-info">
+              <strong>📎 Attachments:</strong> 
+              <span class="attachment-count">{{ material.attachments.length }} file(s)</span>
+              <div class="attachment-list">
+                <span v-for="attachment in material.attachments" :key="attachment.id" class="attachment-item-card">
+                  <span class="attachment-name">{{ attachment.originalFileName }}</span>
+                  <a :href="buildApiUrl(`api/fileupload/${attachment.id}/download`)" 
+                     target="_blank" 
+                     class="download-link" 
+                     title="Download file">⬇️</a>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -111,6 +125,65 @@
                 placeholder="Internal notes (not visible to AI)" class="form-textarea"></textarea>
             </div>
 
+            <!-- File Attachments Section -->
+            <div class="form-group">
+              <label for="attachments">Attachments</label>
+              <div class="attachments-section">
+                <!-- Existing Attachments (for edit mode) -->
+                <div v-if="showEditModal && currentMaterial.attachments?.length" class="existing-attachments">
+                  <h4>Existing Attachments:</h4>
+                  <div v-for="attachment in currentMaterial.attachments" :key="attachment.id" class="attachment-item">
+                    <div class="attachment-info">
+                      <span class="attachment-name">📎 {{ attachment.originalFileName }}</span>
+                      <span class="attachment-size">({{ formatFileSize(attachment.fileSizeBytes) }})</span>
+                      <span v-if="attachment.description" class="attachment-description">- {{ attachment.description }}</span>
+                      <a :href="buildApiUrl(`api/fileupload/${attachment.id}/download`)" 
+                         target="_blank" 
+                         class="download-link-small" 
+                         title="Download file">⬇️</a>
+                    </div>
+                    <button type="button" @click="removeAttachment(attachment.id)" class="btn-remove-attachment">🗑️</button>
+                  </div>
+                </div>
+
+                <!-- New File Upload -->
+                <div class="file-upload-section">
+                  <input 
+                    type="file" 
+                    id="attachments" 
+                    @change="handleFileSelect" 
+                    multiple 
+                    accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
+                    class="file-input"
+                  />
+                  <label for="attachments" class="file-upload-label">
+                    <span class="upload-icon">📁</span>
+                    Choose Files (PDF, DOC, TXT, Images)
+                  </label>
+                </div>
+
+                <!-- Selected Files Preview -->
+                <div v-if="selectedFiles.length" class="selected-files-preview">
+                  <h4>New Files to Upload:</h4>
+                  <div v-for="(file, index) in selectedFiles" :key="index" class="selected-file-item">
+                    <div class="file-info">
+                      <span class="file-name">📄 {{ file.name }}</span>
+                      <span class="file-size">({{ formatFileSize(file.size) }})</span>
+                    </div>
+                    <div class="file-description">
+                      <input 
+                        v-model="fileDescriptions[index]" 
+                        type="text" 
+                        placeholder="Description (optional)"
+                        class="description-input"
+                      />
+                    </div>
+                    <button type="button" @click="removeSelectedFile(index)" class="btn-remove-file">❌</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="form-group">
               <label class="checkbox-label">
                 <input type="checkbox" v-model="currentMaterial.isActive" />
@@ -153,8 +226,14 @@ const currentMaterial = ref({
   category: '',
   content: '',
   internalNotes: '',
-  isActive: true
+  isActive: true,
+  attachments: []
 })
+
+// File handling
+const selectedFiles = ref([])
+const fileDescriptions = ref([])
+const fileInput = ref(null)
 
 // Quill editor options
 const editorOptions = {
@@ -263,42 +342,140 @@ async function deleteMaterial(id) {
   }
 }
 
+// File handling functions
+function handleFileSelect(event) {
+  const files = Array.from(event.target.files)
+  selectedFiles.value = [...selectedFiles.value, ...files]
+  
+  // Initialize descriptions for new files
+  const newDescriptions = new Array(files.length).fill('')
+  fileDescriptions.value = [...fileDescriptions.value, ...newDescriptions]
+}
+
+function removeSelectedFile(index) {
+  selectedFiles.value.splice(index, 1)
+  fileDescriptions.value.splice(index, 1)
+}
+
+async function removeAttachment(attachmentId) {
+  if (!confirm('Are you sure you want to remove this attachment?')) return
+
+  try {
+    const apiUrl = buildApiUrl(`api/trainingmaterials/${currentMaterial.value.id}/attachments/${attachmentId}`)
+    const response = await fetch(apiUrl, {
+      method: 'DELETE'
+    })
+
+    if (response.ok) {
+      currentMaterial.value.attachments = currentMaterial.value.attachments.filter(a => a.id !== attachmentId)
+    } else {
+      console.error('Failed to remove attachment:', response.status, response.statusText)
+    }
+  } catch (error) {
+    console.error('Error removing attachment:', error)
+  }
+}
+
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes'
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+function clearFileSelection() {
+  selectedFiles.value = []
+  fileDescriptions.value = []
+  if (fileInput.value) {
+    fileInput.value.value = ''
+  }
+}
+
 async function saveMaterial() {
   saving.value = true
 
   try {
-    const endpoint = showEditModal.value
-      ? `api/trainingmaterials/${currentMaterial.value.id}`
-      : 'api/trainingmaterials'
+    // Check if we have files to upload
+    const hasFiles = selectedFiles.value.length > 0
 
-    const apiUrl = buildApiUrl(endpoint)
-    const method = showEditModal.value ? 'PUT' : 'POST'
+    if (hasFiles) {
+      // Use the with-attachments endpoint
+      const endpoint = showEditModal.value
+        ? `api/trainingmaterials/${currentMaterial.value.id}/with-attachments`
+        : 'api/trainingmaterials/with-attachments'
 
-    console.log('Saving material:', method, apiUrl)
+      const apiUrl = buildApiUrl(endpoint)
+      const method = showEditModal.value ? 'PUT' : 'POST'
 
-    const response = await fetch(apiUrl, {
-      method,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(currentMaterial.value)
-    })
+      console.log('Saving material with files:', method, apiUrl)
 
-    if (response.ok) {
-      const savedMaterial = await response.json()
+      // Create FormData for file upload
+      const formData = new FormData()
+      formData.append('title', currentMaterial.value.title)
+      formData.append('category', currentMaterial.value.category)
+      formData.append('content', currentMaterial.value.content)
+      formData.append('internalNotes', currentMaterial.value.internalNotes)
+      formData.append('isActive', currentMaterial.value.isActive.toString())
 
-      if (showEditModal.value) {
-        const index = materials.value.findIndex(m => m.id === savedMaterial.id)
-        if (index !== -1) {
-          materials.value[index] = savedMaterial
+      // Add files and descriptions
+      selectedFiles.value.forEach((file, index) => {
+        formData.append('files', file)
+        if (fileDescriptions.value[index]) {
+          formData.append('attachmentDescriptions', fileDescriptions.value[index])
         }
-      } else {
-        materials.value.push(savedMaterial)
-      }
+      })
 
-      closeModal()
+      const response = await fetch(apiUrl, {
+        method,
+        body: formData
+      })
+
+      if (response.ok) {
+        const savedMaterial = await response.json()
+        console.log('Material saved with attachments:', savedMaterial)
+        
+        // Reload materials to get updated attachment info
+        await loadMaterials()
+        closeModal()
+      } else {
+        console.error('Failed to save material with attachments:', response.status, response.statusText)
+      }
     } else {
-      console.error('Failed to save material:', response.status, response.statusText)
+      // Use the regular endpoint without files
+      const endpoint = showEditModal.value
+        ? `api/trainingmaterials/${currentMaterial.value.id}`
+        : 'api/trainingmaterials'
+
+      const apiUrl = buildApiUrl(endpoint)
+      const method = showEditModal.value ? 'PUT' : 'POST'
+
+      console.log('Saving material:', method, apiUrl)
+
+      const response = await fetch(apiUrl, {
+        method,
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(currentMaterial.value)
+      })
+
+      if (response.ok) {
+        const savedMaterial = await response.json()
+
+        if (showEditModal.value) {
+          const index = materials.value.findIndex(m => m.id === savedMaterial.id)
+          if (index !== -1) {
+            materials.value[index] = savedMaterial
+          }
+        } else {
+          materials.value.push(savedMaterial)
+        }
+
+        closeModal()
+      } else {
+        console.error('Failed to save material:', response.status, response.statusText)
+      }
     }
   } catch (error) {
     console.error('Error saving material:', error)
@@ -316,8 +493,10 @@ function closeModal() {
     category: '',
     content: '',
     internalNotes: '',
-    isActive: true
+    isActive: true,
+    attachments: []
   }
+  clearFileSelection()
 }
 
 function toggleMaximize() {
@@ -970,5 +1149,224 @@ function formatDate(dateString) {
 
 .modal-content.maximized .form-group:has(.rich-editor) label {
   flex-shrink: 0;
+}
+
+/* File Upload Styles */
+.attachments-section {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  background-color: #f9fafb;
+}
+
+.existing-attachments {
+  margin-bottom: 16px;
+}
+
+.existing-attachments h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.attachment-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.attachment-name {
+  font-weight: 500;
+  color: #374151;
+}
+
+.attachment-size {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.attachment-description {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.btn-remove-attachment {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.btn-remove-attachment:hover {
+  background-color: #fee2e2;
+}
+
+.file-upload-section {
+  margin-bottom: 16px;
+}
+
+.file-input {
+  display: none;
+}
+
+.file-upload-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  border: none;
+}
+
+.file-upload-label:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.upload-icon {
+  font-size: 16px;
+}
+
+.selected-files-preview {
+  margin-top: 16px;
+}
+
+.selected-files-preview h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.selected-file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.file-name {
+  font-weight: 500;
+  color: #374151;
+}
+
+.file-size {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.file-description {
+  flex: 1;
+}
+
+.description-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.btn-remove-file {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.btn-remove-file:hover {
+  background-color: #fee2e2;
+}
+
+/* Attachment info in cards */
+.attachments-info {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: #f3f4f6;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.attachment-count {
+  color: #6b7280;
+  margin-left: 8px;
+}
+
+.attachment-list {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attachment-item-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  background-color: #e5e7eb;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #374151;
+}
+
+.attachment-name {
+  display: inline-block;
+}
+
+.download-link {
+  text-decoration: none;
+  font-size: 12px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.download-link:hover {
+  opacity: 1;
+}
+
+.download-link-small {
+  text-decoration: none;
+  font-size: 12px;
+  margin-left: 8px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.download-link-small:hover {
+  opacity: 1;
 }
 </style>

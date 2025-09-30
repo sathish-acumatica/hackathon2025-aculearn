@@ -13,23 +13,20 @@ public interface IFileUploadService
     Task<List<FileUpload>> GetSessionFilesAsync(string sessionId);
     Task<bool> DeleteFileAsync(int fileId);
     Task<FileUpload?> GetFileAsync(int fileId);
+    Task<(byte[] content, string contentType, string fileName)?> GetFileContentAsync(int fileId);
 }
 
 public class FileUploadService : IFileUploadService
 {
     private readonly OnboardingDbContext _context;
     private readonly ILogger<FileUploadService> _logger;
-    private readonly string _uploadsPath;
     private const long MaxFileSize = 10 * 1024 * 1024; // 10MB
     private readonly string[] _allowedExtensions = { ".pdf", ".txt", ".doc", ".docx" };
 
-    public FileUploadService(OnboardingDbContext context, ILogger<FileUploadService> logger, IWebHostEnvironment environment)
+    public FileUploadService(OnboardingDbContext context, ILogger<FileUploadService> logger)
     {
         _context = context;
         _logger = logger;
-        _uploadsPath = Path.Combine(environment.ContentRootPath, "uploads");
-        
-        Directory.CreateDirectory(_uploadsPath);
     }
 
     public async Task<FileUploadResult> ProcessFilesAsync(List<IFormFile> files, string sessionId)
@@ -77,11 +74,7 @@ public class FileUploadService : IFileUploadService
 
         try
         {
-            if (File.Exists(file.FilePath))
-            {
-                File.Delete(file.FilePath);
-            }
-
+            // No need to delete from file system since we store in database
             _context.FileUploads.Remove(file);
             await _context.SaveChangesAsync();
 
@@ -98,6 +91,14 @@ public class FileUploadService : IFileUploadService
     public async Task<FileUpload?> GetFileAsync(int fileId)
     {
         return await _context.FileUploads.FindAsync(fileId);
+    }
+
+    public async Task<(byte[] content, string contentType, string fileName)?> GetFileContentAsync(int fileId)
+    {
+        var file = await _context.FileUploads.FindAsync(fileId);
+        if (file == null) return null;
+
+        return (file.FileContent, file.ContentType, file.OriginalFileName);
     }
 
     private bool IsValidFile(IFormFile file, FileUploadResult result)
@@ -126,21 +127,19 @@ public class FileUploadService : IFileUploadService
 
     private async Task<FileUpload> SaveFileAsync(IFormFile file, string sessionId)
     {
-        var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
-        var filePath = Path.Combine(_uploadsPath, fileName);
-
-        using (var stream = new FileStream(filePath, FileMode.Create))
-        {
-            await file.CopyToAsync(stream);
-        }
+        // Read file content into memory
+        using var memoryStream = new MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileContent = memoryStream.ToArray();
 
         var fileUpload = new FileUpload
         {
-            FileName = fileName,
+            FileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}",
             OriginalFileName = file.FileName,
             ContentType = file.ContentType,
             FileSizeBytes = file.Length,
-            FilePath = filePath,
+            FileContent = fileContent, // Store in database
+            FilePath = null, // No longer needed
             SessionId = sessionId,
             UploadedAt = DateTime.UtcNow
         };
@@ -158,8 +157,8 @@ public class FileUploadService : IFileUploadService
             var extension = Path.GetExtension(fileUpload.OriginalFileName).ToLowerInvariant();
             string content = extension switch
             {
-                ".pdf" => await ExtractPdfTextAsync(fileUpload.FilePath),
-                ".txt" => await File.ReadAllTextAsync(fileUpload.FilePath),
+                ".pdf" => await ExtractPdfTextFromBytesAsync(fileUpload.FileContent),
+                ".txt" => Encoding.UTF8.GetString(fileUpload.FileContent),
                 _ => "File content extraction not supported for this file type"
             };
 
@@ -175,6 +174,33 @@ public class FileUploadService : IFileUploadService
         await _context.SaveChangesAsync();
     }
 
+    private async Task<string> ExtractPdfTextFromBytesAsync(byte[] pdfBytes)
+    {
+        var content = new StringBuilder();
+
+        try
+        {
+            using var memoryStream = new MemoryStream(pdfBytes);
+            using var reader = new PdfReader(memoryStream);
+            using var document = new PdfDocument(reader);
+
+            for (int i = 1; i <= document.GetNumberOfPages(); i++)
+            {
+                var page = document.GetPage(i);
+                var text = PdfTextExtractor.GetTextFromPage(page);
+                content.AppendLine(text);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error extracting PDF text from bytes");
+            throw new InvalidOperationException("Failed to extract text from PDF", ex);
+        }
+
+        return await Task.FromResult(content.ToString());
+    }
+
+    // Keep the old method for backward compatibility
     private async Task<string> ExtractPdfTextAsync(string filePath)
     {
         var content = new StringBuilder();

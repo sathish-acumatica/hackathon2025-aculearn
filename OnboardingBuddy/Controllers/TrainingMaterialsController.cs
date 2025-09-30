@@ -9,16 +9,21 @@ namespace OnboardingBuddy.Controllers;
 public class TrainingMaterialsController : ControllerBase
 {
     private readonly ITrainingMaterialService _trainingService;
+    private readonly IFileUploadService _fileUploadService;
     private readonly ILogger<TrainingMaterialsController> _logger;
 
-    public TrainingMaterialsController(ITrainingMaterialService trainingService, ILogger<TrainingMaterialsController> logger)
+    public TrainingMaterialsController(
+        ITrainingMaterialService trainingService, 
+        IFileUploadService fileUploadService,
+        ILogger<TrainingMaterialsController> logger)
     {
         _trainingService = trainingService;
+        _fileUploadService = fileUploadService;
         _logger = logger;
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<TrainingMaterial>>> GetAll()
+    public async Task<ActionResult<IEnumerable<TrainingMaterialResponse>>> GetAll()
     {
         try
         {
@@ -33,7 +38,7 @@ public class TrainingMaterialsController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    public async Task<ActionResult<TrainingMaterial>> GetById(int id)
+    public async Task<ActionResult<TrainingMaterialResponse>> GetById(int id)
     {
         try
         {
@@ -72,6 +77,26 @@ public class TrainingMaterialsController : ControllerBase
         }
     }
 
+    [HttpPost("with-attachments")]
+    public async Task<ActionResult<TrainingMaterial>> CreateWithAttachments([FromForm] TrainingMaterialWithAttachmentsRequest request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var material = await _trainingService.CreateWithAttachmentsAsync(request, _fileUploadService);
+            return CreatedAtAction(nameof(GetById), new { id = material.Id }, material);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating training material with attachments");
+            return StatusCode(500, "An error occurred while creating the training material");
+        }
+    }
+
     [HttpPut("{id}")]
     public async Task<ActionResult<TrainingMaterial>> Update(int id, [FromBody] TrainingMaterialRequest request)
     {
@@ -94,6 +119,51 @@ public class TrainingMaterialsController : ControllerBase
         {
             _logger.LogError(ex, "Error updating training material {Id}", id);
             return StatusCode(500, "An error occurred while updating the training material");
+        }
+    }
+
+    [HttpPut("{id}/with-attachments")]
+    public async Task<ActionResult<TrainingMaterial>> UpdateWithAttachments(int id, [FromForm] TrainingMaterialWithAttachmentsRequest request)
+    {
+        try
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var material = await _trainingService.UpdateWithAttachmentsAsync(id, request, _fileUploadService);
+            if (material == null)
+            {
+                return NotFound();
+            }
+
+            return Ok(material);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating training material {Id} with attachments", id);
+            return StatusCode(500, "An error occurred while updating the training material");
+        }
+    }
+
+    [HttpDelete("{id}/attachments/{attachmentId}")]
+    public async Task<IActionResult> RemoveAttachment(int id, int attachmentId)
+    {
+        try
+        {
+            var success = await _trainingService.RemoveAttachmentAsync(id, attachmentId);
+            if (!success)
+            {
+                return NotFound();
+            }
+
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing attachment {AttachmentId} from training material {Id}", attachmentId, id);
+            return StatusCode(500, "An error occurred while removing the attachment");
         }
     }
 

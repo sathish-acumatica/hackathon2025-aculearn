@@ -102,4 +102,25 @@ public class FileUploadController : ControllerBase
             return StatusCode(500, "An error occurred while retrieving the file");
         }
     }
+
+    [HttpGet("{fileId}/download")]
+    public async Task<IActionResult> DownloadFile(int fileId)
+    {
+        try
+        {
+            var fileContent = await _fileUploadService.GetFileContentAsync(fileId);
+            if (fileContent == null)
+            {
+                return NotFound();
+            }
+
+            var (content, contentType, fileName) = fileContent.Value;
+            return File(content, contentType, fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading file {FileId}", fileId);
+            return StatusCode(500, "An error occurred while downloading the file");
+        }
+    }
 }

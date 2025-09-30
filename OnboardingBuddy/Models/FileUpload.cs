@@ -17,8 +17,11 @@ namespace OnboardingBuddy.Models
         
         public long FileSizeBytes { get; set; }
         
-        [Required]
-        public string FilePath { get; set; } = string.Empty;
+        // Store file content directly in database instead of file path
+        public byte[] FileContent { get; set; } = Array.Empty<byte>();
+        
+        // Keep FilePath for backward compatibility (can be removed later)
+        public string? FilePath { get; set; }
         
         public string? SessionId { get; set; }
         
@@ -29,6 +32,9 @@ namespace OnboardingBuddy.Models
         public string? ProcessedContent { get; set; }
         
         public string? ProcessingError { get; set; }
+        
+        // Navigation property for training material attachments
+        public virtual ICollection<TrainingMaterialAttachment> TrainingMaterialAttachments { get; set; } = new List<TrainingMaterialAttachment>();
     }
 
     public class ChatMessageWithFiles
