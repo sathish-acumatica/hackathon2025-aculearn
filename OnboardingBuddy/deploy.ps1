@@ -2,19 +2,25 @@
 
 param(
     [Parameter(Mandatory=$false)]
-    [string]$VirtualAppName = "OnboardingBuddy",
+    [string]$VirtualAppName = "",
     
     [Parameter(Mandatory=$false)]
     [string]$PublishPath = "C:\Sites"
 )
 
-Write-Host "OnboardingBuddy - Flexible Virtual Application Deploy" -ForegroundColor Green
-Write-Host "=================================================" -ForegroundColor Green
-Write-Host "Virtual Application: $VirtualAppName" -ForegroundColor Cyan
-Write-Host "Deploy Path: $PublishPath\$VirtualAppName" -ForegroundColor Cyan
-Write-Host ""
+# Determine deployment type and paths
+$isRootDeployment = [string]::IsNullOrWhiteSpace($VirtualAppName)
+$deploymentType = if ($isRootDeployment) { "Root Site" } else { "Virtual Application" }
+$displayName = if ($isRootDeployment) { "Root" } else { $VirtualAppName }
+$fullPublishPath = if ($isRootDeployment) { $PublishPath } else { Join-Path $PublishPath $VirtualAppName }
+$appPoolName = if ($isRootDeployment) { "DefaultAppPool" } else { $VirtualAppName }
 
-$fullPublishPath = Join-Path $PublishPath $VirtualAppName
+Write-Host "OnboardingBuddy - Flexible Deployment" -ForegroundColor Green
+Write-Host "================================" -ForegroundColor Green
+Write-Host "Deployment Type: $deploymentType" -ForegroundColor Cyan
+Write-Host "Target: $displayName" -ForegroundColor Cyan
+Write-Host "Deploy Path: $fullPublishPath" -ForegroundColor Cyan
+Write-Host ""
 
 # Ensure we're in the OnboardingBuddy project directory
 if (-not (Test-Path "OnboardingBuddy.csproj")) {
@@ -23,11 +29,11 @@ if (-not (Test-Path "OnboardingBuddy.csproj")) {
 }
 
 # Stop app pool
-Write-Host "Stopping $VirtualAppName app pool..." -ForegroundColor Yellow
+Write-Host "Stopping $appPoolName app pool..." -ForegroundColor Yellow
 try {
     Import-Module WebAdministration -ErrorAction SilentlyContinue
     if (Get-Module WebAdministration) {
-        Stop-WebAppPool -Name $VirtualAppName -ErrorAction SilentlyContinue
+        Stop-WebAppPool -Name $appPoolName -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
         Write-Host "? App pool stopped" -ForegroundColor Green
     }
@@ -159,7 +165,7 @@ try {
     $acl = Get-Acl $fullPublishPath
     
     # App pool identity
-    $appPoolRule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS AppPool\$VirtualAppName", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+    $appPoolRule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS AppPool\$appPoolName", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
     $acl.SetAccessRule($appPoolRule)
     
     # IIS users
@@ -171,17 +177,17 @@ try {
     $acl.SetAccessRule($iusrRule)
     
     Set-Acl $fullPublishPath $acl
-    Write-Host "? Permissions set for $VirtualAppName app pool" -ForegroundColor Green
+    Write-Host "? Permissions set for $appPoolName app pool" -ForegroundColor Green
 } catch {
     Write-Host "? Could not set permissions: $_" -ForegroundColor Yellow
 }
 
 # Start app pool
 Write-Host ""
-Write-Host "Starting $VirtualAppName app pool..." -ForegroundColor Yellow
+Write-Host "Starting $appPoolName app pool..." -ForegroundColor Yellow
 try {
     if (Get-Module WebAdministration) {
-        Start-WebAppPool -Name $VirtualAppName -ErrorAction SilentlyContinue
+        Start-WebAppPool -Name $appPoolName -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
         Write-Host "? App pool started" -ForegroundColor Green
     }
@@ -212,33 +218,39 @@ Write-Host ""
 Write-Host "?? DEPLOYMENT COMPLETE!" -ForegroundColor Green
 Write-Host ""
 Write-Host "?? Universal Path Support Applied:" -ForegroundColor Yellow
-Write-Host "• Dynamic base tag injection for static files" -ForegroundColor White
-Write-Host "• SignalR Hub URLs adapt to deployment location" -ForegroundColor White
-Write-Host "• Chat API calls use correct virtual app path" -ForegroundColor White
-Write-Host "• Admin Panel API calls now use correct paths" -ForegroundColor White
-Write-Host "• Vue Router base path auto-detection" -ForegroundColor White
+Write-Host "ï¿½ Dynamic base tag injection for static files" -ForegroundColor White
+Write-Host "ï¿½ SignalR Hub URLs adapt to deployment location" -ForegroundColor White
+Write-Host "ï¿½ Chat API calls use correct virtual app path" -ForegroundColor White
+Write-Host "ï¿½ Admin Panel API calls now use correct paths" -ForegroundColor White
+Write-Host "ï¿½ Vue Router base path auto-detection" -ForegroundColor White
 Write-Host ""
-Write-Host "?? URL Examples for '$VirtualAppName' deployment:" -ForegroundColor Yellow
-Write-Host "• Application: http://localhost/$VirtualAppName" -ForegroundColor White
-Write-Host "• Admin Panel: http://localhost/$VirtualAppName/admin" -ForegroundColor White
-Write-Host "• Training API: http://localhost/$VirtualAppName/api/trainingmaterials" -ForegroundColor White
-Write-Host "• Chat Hub: http://localhost/$VirtualAppName/chatHub" -ForegroundColor White
-Write-Host "• Static Assets: http://localhost/$VirtualAppName/assets/" -ForegroundColor White
+$baseUrl = if ($isRootDeployment) { "http://localhost" } else { "http://localhost/$VirtualAppName" }
+$pathPrefix = if ($isRootDeployment) { "" } else { "/$VirtualAppName" }
+
+Write-Host "?? URL Examples for '$displayName' deployment:" -ForegroundColor Yellow
+Write-Host "ï¿½ Application: $baseUrl" -ForegroundColor White
+Write-Host "ï¿½ Admin Panel: $baseUrl/admin" -ForegroundColor White
+Write-Host "ï¿½ Training API: $baseUrl/api/trainingmaterials" -ForegroundColor White
+Write-Host "ï¿½ Chat Hub: $baseUrl/chatHub" -ForegroundColor White
+Write-Host "ï¿½ Static Assets: $baseUrl/assets/" -ForegroundColor White
 Write-Host ""
 Write-Host "Deployment Details:" -ForegroundColor Yellow
-Write-Host "• Virtual Application: $VirtualAppName" -ForegroundColor White
-Write-Host "• Physical Path: $fullPublishPath" -ForegroundColor White
-Write-Host "• App Pool: $VirtualAppName (No Managed Code)" -ForegroundColor White
+Write-Host "ï¿½ Deployment Type: $deploymentType" -ForegroundColor White
+Write-Host "ï¿½ Target: $displayName" -ForegroundColor White
+Write-Host "ï¿½ Physical Path: $fullPublishPath" -ForegroundColor White
+Write-Host "ï¿½ App Pool: $appPoolName (No Managed Code)" -ForegroundColor White
 Write-Host ""
+$expectedBasePath = if ($isRootDeployment) { "/" } else { "/$VirtualAppName/" }
+
 Write-Host "?? Testing Instructions:" -ForegroundColor Yellow
-Write-Host "1. Navigate to http://localhost/$VirtualAppName" -ForegroundColor White
-Write-Host "2. Check browser console for 'Base path set to: /$VirtualAppName/'" -ForegroundColor White
+Write-Host "1. Navigate to $baseUrl" -ForegroundColor White
+Write-Host "2. Check browser console for 'Base path set to: $expectedBasePath'" -ForegroundColor White
 Write-Host "3. Test Chat functionality (SignalR)" -ForegroundColor White
-Write-Host "4. Test Admin Panel at http://localhost/$VirtualAppName/admin" -ForegroundColor White
+Write-Host "4. Test Admin Panel at $baseUrl/admin" -ForegroundColor White
 Write-Host "5. Verify training materials load correctly in Admin Panel" -ForegroundColor White
 Write-Host ""
 Write-Host "?? Flexible Deployment Examples:" -ForegroundColor Yellow
-Write-Host "   .\deploy.ps1                                    # Deploy to OnboardingBuddy" -ForegroundColor White
-Write-Host "   .\deploy.ps1 -VirtualAppName HR                 # Deploy to HR" -ForegroundColor White
-Write-Host "   .\deploy.ps1 -VirtualAppName Training           # Deploy to Training" -ForegroundColor White
-Write-Host "   .\deploy.ps1 -VirtualAppName MyApp -PublishPath D:\ # Deploy to D:\MyApp" -ForegroundColor White
+Write-Host "   .\deploy.ps1                                    # Deploy to root site" -ForegroundColor White
+Write-Host "   .\deploy.ps1 -VirtualAppName OnboardingBuddy     # Deploy to virtual app" -ForegroundColor White
+Write-Host "   .\deploy.ps1 -VirtualAppName HR                 # Deploy to HR virtual app" -ForegroundColor White
+Write-Host "   .\deploy.ps1 -PublishPath D:\inetpub\wwwroot     # Deploy to root of D: drive" -ForegroundColor White

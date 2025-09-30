@@ -21,7 +21,7 @@ builder.Services.AddSignalR();
 // Add SPA services for Vue.js development
 builder.Services.AddSpaStaticFiles(configuration =>
 {
-    configuration.RootPath = "wwwroot";
+    configuration.RootPath = "ClientApp/dist";
 });
 
 // Configure forwarded headers for virtual applications
@@ -96,18 +96,15 @@ app.MapHub<ChatHub>("/chatHub");
 // Configure SPA for virtual application
 app.UseSpa(spa =>
 {
-    spa.Options.SourcePath = "wwwroot";
+    spa.Options.SourcePath = "ClientApp";
     spa.Options.DefaultPage = "/index.html";
     
-    // Note: In production, files are served from wwwroot
-    // For development, comment out the proxy line below and build the client app to wwwroot
-    
-    // if (app.Environment.IsDevelopment())
-    // {
-    //     // In development, proxy to the Vite dev server
-    //     spa.UseProxyToSpaDevelopmentServer("http://localhost:3000");
-    // }
-    // In production, files are already in wwwroot - no additional configuration needed
+    if (app.Environment.IsDevelopment())
+    {
+        // In development, proxy to the Vite dev server
+        spa.UseProxyToSpaDevelopmentServer("http://localhost:3000");
+    }
+    // In production, files are served from wwwroot via static files middleware
 });
 
 app.Run();
