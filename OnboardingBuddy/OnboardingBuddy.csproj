@@ -40,4 +40,30 @@
     <Exec WorkingDirectory="$(SpaRoot)" Command="npm install" />
   </Target>
 
+  <Target Name="PublishRunWebpack" AfterTargets="ComputeFilesToPublish">
+    <!-- As part of publishing, ensure the JS resources are freshly built in production mode with relative paths -->
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm install" />
+    
+    <!-- Build with explicit base configuration to ensure relative paths -->
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
+    
+    <!-- Verify that relative paths were generated -->
+    <ReadLinesFromFile File="$(SpaRoot)dist\index.html" Condition="Exists('$(SpaRoot)dist\index.html')">
+      <Output TaskParameter="Lines" PropertyName="IndexHtmlContent" />
+    </ReadLinesFromFile>
+    
+    <!-- Include the newly-built files in the publish output to wwwroot -->
+    <ItemGroup>
+      <DistFiles Include="$(SpaRoot)dist\**" />
+      <ResolvedFileToPublish Include="@(DistFiles->'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot\%(RecursiveDir)%(FileName)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+    
+    <!-- Log message about relative paths -->
+    <Message Text="Vue.js SPA built with relative paths for virtual application deployment" Importance="high" />
+  </Target>
+
 </Project>

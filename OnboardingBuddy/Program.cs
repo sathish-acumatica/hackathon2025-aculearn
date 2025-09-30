@@ -6,6 +6,9 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure for virtual application deployment
+builder.WebHost.UseWebRoot("wwwroot");
+
 // Add Entity Framework
 builder.Services.AddDbContext<OnboardingDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") 
@@ -18,8 +21,16 @@ builder.Services.AddSignalR();
 // Add SPA services for Vue.js development
 builder.Services.AddSpaStaticFiles(configuration =>
 {
-    configuration.RootPath = "ClientApp/dist";
+    configuration.RootPath = "wwwroot";
 });
+
+// Configure forwarded headers for virtual applications
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | 
+                              Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+});
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -65,9 +76,13 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
 }
 
-app.UseHttpsRedirection();
+// Use forwarded headers for virtual applications
+app.UseForwardedHeaders();
+
+// Serve static files from wwwroot
 app.UseStaticFiles();
 app.UseSpaStaticFiles();
+
 app.UseRouting();
 
 app.UseCors("AllowAll");
@@ -77,28 +92,18 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<ChatHub>("/chatHub");
 
-// Configure SPA to serve built files
+// Configure SPA for virtual application
 app.UseSpa(spa =>
 {
-    spa.Options.SourcePath = "ClientApp";
+    spa.Options.SourcePath = "wwwroot";
     spa.Options.DefaultPage = "/index.html";
     
-    // In production, serve the built files from the dist folder
-    if (!app.Environment.IsDevelopment())
+    if (app.Environment.IsDevelopment())
     {
-        spa.Options.DefaultPageStaticFileOptions = new StaticFileOptions
-        {
-            OnPrepareResponse = ctx =>
-            {
-                // Cache static assets for 1 year
-                if (ctx.File.Name.EndsWith(".js") || ctx.File.Name.EndsWith(".css") || 
-                    ctx.File.Name.EndsWith(".woff") || ctx.File.Name.EndsWith(".woff2"))
-                {
-                    ctx.Context.Response.Headers.Append("Cache-Control", "public,max-age=31536000");
-                }
-            }
-        };
+        // In development, proxy to the Vite dev server
+        spa.UseProxyToSpaDevelopmentServer("http://localhost:3000");
     }
+    // In production, files are already in wwwroot - no additional configuration needed
 });
 
 app.Run();
