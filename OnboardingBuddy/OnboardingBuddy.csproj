@@ -17,7 +17,7 @@
     <PackageReference Include="System.Drawing.Common" Version="9.0.9" />
     <PackageReference Include="System.Text.Json" Version="9.0.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
@@ -41,6 +41,24 @@
     <Error Condition="'$(ErrorCode)' != '0'" Text="Node.js is required to build and run this project. To continue, please install Node.js from https://nodejs.org/, and then restart your command prompt or IDE." />
     <Message Importance="high" Text="Restoring dependencies using 'npm'. This may take several minutes..." />
     <Exec WorkingDirectory="$(SpaRoot)" Command="npm install" />
+  </Target>
+
+  <!-- Build ClientApp before anything else -->
+  <Target Name="EnsureClientAppBuilt" BeforeTargets="GetCopyToOutputDirectoryItems;GetCopyToPublishDirectoryItems" Condition="'$(SkipClientBuild)' != 'true'">
+    <Message Importance="high" Text="========== Building Vue.js ClientApp ==========" />
+    
+    <!-- Ensure npm dependencies are installed -->
+    <Exec WorkingDirectory="$(SpaRoot)" 
+          Command="npm install" 
+          Condition="!Exists('$(SpaRoot)node_modules')" 
+          ContinueOnError="false" />
+    
+    <!-- Build the client app -->
+    <Exec WorkingDirectory="$(SpaRoot)" 
+          Command="npm run build" 
+          ContinueOnError="false" />
+    
+    <Message Importance="high" Text="========== ClientApp built successfully to wwwroot ==========" />
   </Target>
 
   <Target Name="PublishRunWebpack" AfterTargets="ComputeFilesToPublish">

@@ -6,8 +6,8 @@ function injectBaseTagForProduction() {
   return {
     name: 'inject-base-tag-production',
     transformIndexHtml: {
-      enforce: 'pre',
-      transform(html, ctx) {
+      order: 'pre',
+      handler(html, ctx) {
         // Only inject in production builds for virtual application support
         if (ctx.server) {
           // Development mode - no injection needed
@@ -78,8 +78,9 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist',
+    outDir: '../wwwroot',
     assetsDir: 'assets',
+    emptyOutDir: true, // Clean the output directory before build
     rollupOptions: {
       output: {
         // Asset file naming

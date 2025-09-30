@@ -78,9 +78,7 @@
           class="send-button"
         >
           <span v-if="isLoading">⏳</span>
-          <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor"/>
-          </svg>
+          <span v-else>▶️</span>
         </button>
       </div>
       
@@ -770,26 +768,14 @@ function setupDragAndDrop() {
   font-weight: bold;
 }
 
-.send-button svg {
-  transition: transform 0.2s ease;
-}
-
 .attach-button:hover, .send-button:hover {
   transform: scale(1.1);
   box-shadow: 0 4px 15px rgba(255, 123, 123, 0.4);
 }
 
-.send-button:hover svg {
-  transform: translateX(2px);
-}
-
 .send-button:disabled {
   background: #ccc;
   cursor: not-allowed;
-  transform: none;
-}
-
-.send-button:disabled svg {
   transform: none;
 }
 

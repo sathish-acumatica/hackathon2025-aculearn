@@ -1,0 +1,42 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build ClientApp Only",
+			"type": "shell",
+			"command": "npm",
+			"args": ["run", "build"],
+			"options": {
+				"cwd": "${workspaceFolder}/OnboardingBuddy/ClientApp"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Build OnboardingBuddy",
+			"type": "shell",
+			"command": "dotnet",
+			"args": ["build"],
+			"options": {
+				"cwd": "${workspaceFolder}/OnboardingBuddy"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": ["$msCompile"]
+		},
+		{
+			"label": "Run OnboardingBuddy",
+			"type": "shell",
+			"command": "dotnet",
+			"args": ["run"],
+			"options": {
+				"cwd": "${workspaceFolder}/OnboardingBuddy"
+			},
+			"isBackground": true,
+			"group": "test",
+			"problemMatcher": ["$msCompile"]
+		}
+	]
+}

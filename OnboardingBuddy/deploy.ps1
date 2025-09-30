@@ -47,8 +47,9 @@ Write-Host "Building Vue.js frontend with universal path support..." -Foreground
 Set-Location "ClientApp"
 
 # Clean previous build
-if (Test-Path "dist") {
-    Remove-Item -Path "dist" -Recurse -Force
+if (Test-Path "../wwwroot") {
+    # Keep the onboarding-buddy-icon.svg but remove other files
+    Get-ChildItem "../wwwroot" -Exclude "onboarding-buddy-icon.svg" | Remove-Item -Recurse -Force
     Write-Host "? Cleaned previous build" -ForegroundColor Green
 }
 
@@ -67,7 +68,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Verify the build and check for the base tag injection
-$indexPath = "dist\index.html"
+$indexPath = "..\wwwroot\index.html"
 if (Test-Path $indexPath) {
     $content = Get-Content $indexPath -Raw
     
@@ -125,11 +126,12 @@ foreach ($dir in $directories) {
 }
 
 # Copy Vue.js files to wwwroot
-$distPath = "ClientApp\dist"
+$distPath = "wwwroot"
 $wwwrootPath = Join-Path $fullPublishPath "wwwroot"
 
 Write-Host "Copying frontend files to wwwroot..." -ForegroundColor Yellow
 if (Test-Path $distPath) {
+    # Copy files from source wwwroot to deployment wwwroot
     Get-ChildItem -Path $distPath -Recurse -File | ForEach-Object {
         $relativePath = $_.FullName.Substring((Resolve-Path $distPath).Path.Length + 1)
         $destinationPath = Join-Path $wwwrootPath $relativePath
@@ -154,7 +156,7 @@ if (Test-Path $distPath) {
         }
     }
 } else {
-    Write-Error "? Vue.js dist directory not found"
+    Write-Error "? Vue.js wwwroot directory not found"
     exit 1
 }
 

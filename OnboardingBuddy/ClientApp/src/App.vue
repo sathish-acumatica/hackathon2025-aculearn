@@ -2,9 +2,11 @@
   <div id="app">
     <nav class="app-nav">
       <div class="nav-brand">
-        <div class="brand-icon">🚀</div>
+        <div class="brand-icon">
+          <img src="/onboarding-buddy-icon.svg" alt="AcuBuddy" />
+        </div>
         <div class="brand-text">
-          <h1>OnboardingBuddy</h1>
+          <h1>AcuBuddy</h1>
           <p>Your AI-powered onboarding companion</p>
         </div>
       </div>
@@ -67,8 +69,18 @@ body {
 }
 
 .brand-icon {
-  font-size: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
   animation: bounce 2s infinite;
+}
+
+.brand-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 @keyframes bounce {

@@ -50,7 +50,7 @@ public class AIService : IAIService
 
             var (materials, trainingContext) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
             
-            var requestPayload = await CreateRequestPayload(message, trainingContext, null);
+            var requestPayload = CreateRequestPayload(message, trainingContext, null);
             var response = await SendAIRequestAsync(requestPayload);
             
             var result = ExtractResponseText(response);
@@ -94,7 +94,7 @@ public class AIService : IAIService
                 ? fileContext 
                 : $"{trainingContext}\n\nAttached Files:\n{fileContext}";
             
-            var requestPayload = await CreateRequestPayload(message, enhancedContext ?? "", files ?? new List<FileUpload>());
+            var requestPayload = CreateRequestPayload(message, enhancedContext ?? "", files ?? new List<FileUpload>());
             var response = await SendAIRequestAsync(requestPayload);
             
             return ExtractResponseText(response);
@@ -138,7 +138,7 @@ public class AIService : IAIService
                 model = _config.Model,
                 max_tokens = Math.Min(_config.MaxTokens, 500), // Limit tokens for welcome
                 temperature = _config.Temperature,
-                system = "You are OnboardingBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise.",
+                system = "You are AcuBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise.",
                 messages = new[]
                 {
                     new { role = "user", content = welcomePrompt }
@@ -155,9 +155,9 @@ public class AIService : IAIService
         }
     }
 
-    private async Task<object> CreateRequestPayload(string message, string context, List<FileUpload>? files)
+    private object CreateRequestPayload(string message, string context, List<FileUpload>? files)
     {
-        var systemPrompt = await BuildSystemPrompt(context);
+        var systemPrompt = BuildSystemPrompt(context);
         
         return new
         {
@@ -172,12 +172,31 @@ public class AIService : IAIService
         };
     }
 
-    private async Task<string> BuildSystemPrompt(string context)
+    private string BuildSystemPrompt(string context)
     {
         // System prompt comes from TrainingMaterials with category "System Prompts"
         // The context already includes system prompts from the training materials
-        return !string.IsNullOrWhiteSpace(context) ? context : 
-               "You are OnboardingBuddy, an AI assistant helping new employees with their onboarding journey.";
+        var basePrompt = !string.IsNullOrWhiteSpace(context) ? context : 
+               "You are AcuBuddy, an AI assistant helping new employees with their onboarding journey.";
+        
+        // Add explicit HTML formatting instructions (like the old successful version)
+        var formattingInstructions = @"
+
+IMPORTANT RESPONSE FORMATTING RULES:
+- Always respond with well-formatted HTML that can be rendered directly in a web interface
+- Use proper HTML tags: <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em>, <a>, <br>, etc.
+- For lists, use <ul> and <li> tags
+- For emphasis, use <strong> for bold and <em> for italic
+- For links, use <a href='url' target='_blank'>link text</a>
+- For code or technical terms, use <code>term</code>
+- For line breaks, use <br> tags
+- Structure your response with clear headings using <h2> and <h3>
+- Keep paragraphs in <p> tags
+- Never use markdown syntax (no ## or ** or []()) - always use HTML
+- Your entire response should be valid HTML that can be inserted directly into a web page
+- Make responses visually appealing with proper HTML structure and formatting";
+
+        return basePrompt + formattingInstructions;
     }
 
     private async Task<string> GetApiKeyAsync()
@@ -312,7 +331,7 @@ public class AIService : IAIService
         await Task.Delay(100); // Simulate processing time
         
         return @"<div class='fallback-message'>
-            <h3>🤖 OnboardingBuddy Assistant</h3>
+            <h3>🤖 AcuBuddy Assistant</h3>
             <p>I'm here to help with your onboarding! However, my AI capabilities are currently unavailable.</p>
             <p><strong>I can still help you with:</strong></p>
             <ul>
@@ -367,7 +386,7 @@ public class AIService : IAIService
     {
         return @"<div class='welcome-message'>
             <h2>🎉 Welcome to your new role!</h2>
-            <p>I'm OnboardingBuddy, your AI onboarding assistant. I'm here to guide you through your first steps and help you succeed in your new position!</p>
+            <p>I'm AcuBuddy, your AI onboarding assistant. I'm here to guide you through your first steps and help you succeed in your new position!</p>
             
             <p><strong>Let's get started! 🚀</strong></p>
             

@@ -3,7 +3,12 @@
     <!-- Filter Bar -->
     <div class="filter-section">
       <div class="search-container">
-        <input v-model="searchTerm" type="text" placeholder="Search materials..." class="search-input" />
+        <input 
+          v-model="searchTerm" 
+          type="text" 
+          placeholder="Search materials..." 
+          class="search-input"
+        />
         <div class="search-icon">🔍</div>
       </div>
       <div class="filter-controls">
@@ -29,13 +34,13 @@
         <div class="loading-spinner">⏳</div>
         <p>Loading materials...</p>
       </div>
-
+      
       <div v-else-if="filteredMaterials.length === 0" class="empty-state">
         <div class="empty-icon">📚</div>
         <h3>No materials found</h3>
         <p>Create your first training material to get started!</p>
       </div>
-
+      
       <div v-else class="materials-grid">
         <div v-for="material in filteredMaterials" :key="material.id" class="material-card">
           <div class="card-header">
@@ -45,7 +50,7 @@
               <button @click="deleteMaterial(material.id)" class="btn-delete" title="Delete">🗑️</button>
             </div>
           </div>
-
+          
           <div class="card-body">
             <div class="material-category">
               <span class="category-badge">{{ material.category }}</span>
@@ -53,9 +58,9 @@
                 {{ material.isActive ? '✅ Active' : '❌ Inactive' }}
               </span>
             </div>
-
+            
             <div class="material-content" v-html="truncateContent(material.content)"></div>
-
+            
             <div class="material-meta">
               <div class="date-info">
                 📅 {{ formatDate(material.createdAt) }}
@@ -72,8 +77,7 @@
     </div>
 
     <!-- Create/Edit Modal -->
-    <div v-if="showCreateModal || showEditModal" class="modal-overlay" :class="{ 'maximized': isMaximized }"
-      @click="closeModal">
+    <div v-if="showCreateModal || showEditModal" class="modal-overlay" :class="{ 'maximized': isMaximized }" @click="closeModal">
       <div class="modal-content" :class="{ 'maximized': isMaximized }" @click.stop>
         <div class="modal-header">
           <h2>{{ showEditModal ? '✏️ Edit Material' : '➕ Create New Material' }}</h2>
@@ -84,36 +88,62 @@
             <button @click="closeModal" class="btn-close">×</button>
           </div>
         </div>
-
+        
         <form @submit.prevent="saveMaterial" class="modal-form">
           <div class="form-content">
             <div class="form-group">
               <label for="title">Title *</label>
-              <input id="title" v-model="currentMaterial.title" type="text" required maxlength="200"
-                placeholder="Enter material title" class="form-input" />
+              <input
+                id="title"
+                v-model="currentMaterial.title"
+                type="text"
+                required
+                maxlength="200"
+                placeholder="Enter material title"
+                class="form-input"
+              />
             </div>
 
             <div class="form-group">
               <label for="category">Category *</label>
-              <input id="category" v-model="currentMaterial.category" type="text" required maxlength="100"
-                placeholder="e.g., Training Materials, System Prompts" class="form-input" />
+              <input
+                id="category"
+                v-model="currentMaterial.category"
+                type="text"
+                required
+                maxlength="100"
+                placeholder="e.g., Training Materials, System Prompts"
+                class="form-input"
+              />
             </div>
 
             <div class="form-group">
               <label for="content">Content</label>
-              <QuillEditor v-model:content="currentMaterial.content" :options="editorOptions" content-type="html"
-                class="rich-editor" />
+              <QuillEditor
+                v-model:content="currentMaterial.content"
+                :options="editorOptions"
+                content-type="html"
+                class="rich-editor"
+              />
             </div>
 
             <div class="form-group">
               <label for="internalNotes">Internal Notes</label>
-              <textarea id="internalNotes" v-model="currentMaterial.internalNotes" rows="3"
-                placeholder="Internal notes (not visible to AI)" class="form-textarea"></textarea>
+              <textarea
+                id="internalNotes"
+                v-model="currentMaterial.internalNotes"
+                rows="3"
+                placeholder="Internal notes (not visible to AI)"
+                class="form-textarea"
+              ></textarea>
             </div>
 
             <div class="form-group">
               <label class="checkbox-label">
-                <input type="checkbox" v-model="currentMaterial.isActive" />
+                <input
+                  type="checkbox"
+                  v-model="currentMaterial.isActive"
+                />
                 <span>Active (visible to AI)</span>
               </label>
             </div>
@@ -164,9 +194,9 @@ const editorOptions = {
       ['bold', 'italic', 'underline', 'strike'],
       ['blockquote', 'code-block'],
       [{ 'header': 1 }, { 'header': 2 }],
-      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-      [{ 'script': 'sub' }, { 'script': 'super' }],
-      [{ 'indent': '-1' }, { 'indent': '+1' }],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'script': 'sub'}, { 'script': 'super' }],
+      [{ 'indent': '-1'}, { 'indent': '+1' }],
       [{ 'direction': 'rtl' }],
       [{ 'size': ['small', false, 'large', 'huge'] }],
       [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
@@ -191,7 +221,7 @@ const filteredMaterials = computed(() => {
 
   if (searchTerm.value) {
     const term = searchTerm.value.toLowerCase()
-    filtered = filtered.filter(m =>
+    filtered = filtered.filter(m => 
       m.title.toLowerCase().includes(term) ||
       m.category.toLowerCase().includes(term) ||
       m.content.toLowerCase().includes(term)
@@ -215,7 +245,7 @@ onMounted(() => {
   if (import.meta.env.DEV) {
     debugPaths()
   }
-
+  
   loadMaterials()
 })
 
@@ -224,7 +254,7 @@ async function loadMaterials() {
   try {
     const apiUrl = buildApiUrl('api/trainingmaterials')
     console.log('Loading materials from:', apiUrl)
-
+    
     const response = await fetch(apiUrl)
     if (response.ok) {
       materials.value = await response.json()
@@ -248,11 +278,11 @@ async function deleteMaterial(id) {
   try {
     const apiUrl = buildApiUrl(`api/trainingmaterials/${id}`)
     console.log('Deleting material:', apiUrl)
-
+    
     const response = await fetch(apiUrl, {
       method: 'DELETE'
     })
-
+    
     if (response.ok) {
       materials.value = materials.value.filter(m => m.id !== id)
     } else {
@@ -265,17 +295,17 @@ async function deleteMaterial(id) {
 
 async function saveMaterial() {
   saving.value = true
-
+  
   try {
-    const endpoint = showEditModal.value
+    const endpoint = showEditModal.value 
       ? `api/trainingmaterials/${currentMaterial.value.id}`
       : 'api/trainingmaterials'
-
+    
     const apiUrl = buildApiUrl(endpoint)
     const method = showEditModal.value ? 'PUT' : 'POST'
-
+    
     console.log('Saving material:', method, apiUrl)
-
+    
     const response = await fetch(apiUrl, {
       method,
       headers: {
@@ -283,10 +313,10 @@ async function saveMaterial() {
       },
       body: JSON.stringify(currentMaterial.value)
     })
-
+    
     if (response.ok) {
       const savedMaterial = await response.json()
-
+      
       if (showEditModal.value) {
         const index = materials.value.findIndex(m => m.id === savedMaterial.id)
         if (index !== -1) {
@@ -295,7 +325,7 @@ async function saveMaterial() {
       } else {
         materials.value.push(savedMaterial)
       }
-
+      
       closeModal()
     } else {
       console.error('Failed to save material:', response.status, response.statusText)
@@ -303,7 +333,7 @@ async function saveMaterial() {
   } catch (error) {
     console.error('Error saving material:', error)
   }
-
+  
   saving.value = false
 }
 
@@ -448,15 +478,13 @@ function formatDate(dateString) {
   min-height: 0;
 }
 
-.loading-state,
-.empty-state {
+.loading-state, .empty-state {
   text-align: center;
   padding: 60px 20px;
   color: white;
 }
 
-.loading-spinner,
-.empty-icon {
+.loading-spinner, .empty-icon {
   font-size: 4rem;
   margin-bottom: 20px;
 }
@@ -505,8 +533,7 @@ function formatDate(dateString) {
   gap: 10px;
 }
 
-.btn-edit,
-.btn-delete {
+.btn-edit, .btn-delete {
   background: rgba(255, 255, 255, 0.2);
   border: none;
   color: white;
@@ -634,8 +661,7 @@ function formatDate(dateString) {
   align-items: center;
 }
 
-.btn-maximize,
-.btn-close {
+.btn-maximize, .btn-close {
   background: rgba(255, 255, 255, 0.1);
   border: none;
   color: white;
@@ -651,8 +677,7 @@ function formatDate(dateString) {
   transition: background 0.2s ease;
 }
 
-.btn-maximize:hover,
-.btn-close:hover {
+.btn-maximize:hover, .btn-close:hover {
   background: rgba(255, 255, 255, 0.2);
 }
 
@@ -713,8 +738,7 @@ function formatDate(dateString) {
   color: #333;
 }
 
-.form-input,
-.form-textarea {
+.form-input, .form-textarea {
   width: 100%;
   padding: 12px 15px;
   border: 2px solid #e2e8f0;
@@ -724,8 +748,7 @@ function formatDate(dateString) {
   transition: all 0.3s ease;
 }
 
-.form-input:focus,
-.form-textarea:focus {
+.form-input:focus, .form-textarea:focus {
   border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
@@ -754,8 +777,7 @@ function formatDate(dateString) {
   margin-top: 30px;
 }
 
-.btn-cancel,
-.btn-save {
+.btn-cancel, .btn-save {
   padding: 12px 25px;
   border: none;
   border-radius: 10px;
@@ -796,12 +818,12 @@ function formatDate(dateString) {
     flex-direction: column;
     gap: 15px;
   }
-
+  
   .filter-controls {
     flex-wrap: wrap;
     gap: 15px;
   }
-
+  
   .materials-grid {
     grid-template-columns: 1fr;
   }
@@ -837,8 +859,7 @@ function formatDate(dateString) {
 
 /* Maximized editor takes full available space */
 .modal-content.maximized .rich-editor :deep(.ql-editor) {
-  min-height: calc(100vh - 320px);
-  /* Adjust based on header, toolbar, and buttons */
+  min-height: calc(100vh - 320px); /* Adjust based on header, toolbar, and buttons */
 }
 
 /* Ensure editor container fills available space in maximized mode */
@@ -878,8 +899,7 @@ function formatDate(dateString) {
   flex-shrink: 0;
 }
 
-.btn-cancel,
-.btn-save {
+.btn-cancel, .btn-save {
   padding: 12px 24px;
   border: none;
   border-radius: 8px;
@@ -942,6 +962,7 @@ function formatDate(dateString) {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+}
 }
 
 .modal-content.maximized .rich-editor {

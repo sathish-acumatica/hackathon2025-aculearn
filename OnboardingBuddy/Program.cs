@@ -16,8 +16,8 @@ builder.WebHost.UseWebRoot("wwwroot");
 
 // Add Entity Framework
 builder.Services.AddDbContext<OnboardingDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") 
-        ?? "Data Source=onboarding.db"));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection") 
+        ?? "Server=192.168.0.63;Database=OnboardingBuddy;User Id=acu;Password=Test123!;TrustServerCertificate=true;"));
 
 // Add services to the container
 builder.Services.AddControllers();
@@ -26,7 +26,7 @@ builder.Services.AddSignalR();
 // Add SPA services for Vue.js development
 builder.Services.AddSpaStaticFiles(configuration =>
 {
-    configuration.RootPath = "ClientApp/dist";
+    configuration.RootPath = "wwwroot";
 });
 
 // Configure forwarded headers for virtual applications
@@ -104,11 +104,12 @@ app.UseSpa(spa =>
     spa.Options.SourcePath = "ClientApp";
     spa.Options.DefaultPage = "/index.html";
     
-    if (app.Environment.IsDevelopment())
-    {
-        // In development, proxy to the Vite dev server
-        spa.UseProxyToSpaDevelopmentServer("http://localhost:3000");
-    }
+    // Temporarily disable proxy to avoid connection issues
+    // if (app.Environment.IsDevelopment())
+    // {
+    //     // In development, proxy to the Vite dev server
+    //     spa.UseProxyToSpaDevelopmentServer("http://localhost:3000");
+    // }
     // In production, files are served from wwwroot via static files middleware
 });
 
