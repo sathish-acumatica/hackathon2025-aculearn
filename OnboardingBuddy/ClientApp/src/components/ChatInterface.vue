@@ -3,16 +3,6 @@
     class="chat-container"
     :class="{ 'drag-over': isDragOver }"
   >
-    <div class="chat-header">
-      <div class="header-content">
-        <div class="onboarding-buddy-icon">🚀</div>
-        <div class="header-text">
-          <h1>OnboardingBuddy</h1>
-          <p>Your AI-powered onboarding companion</p>
-        </div>
-      </div>
-    </div>
-    
     <!-- Drag overlay -->
     <div v-if="isDragOver" class="drag-overlay">
       <div class="drag-content">
@@ -109,6 +99,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import * as signalR from '@microsoft/signalr'
+import { buildSignalRUrl, buildApiUrl, debugPaths } from '../utils/pathUtils.js'
 
 // Reactive data
 const messages = ref([])
@@ -124,6 +115,11 @@ let connection = null
 let sessionId = generateSessionId()
 
 onMounted(() => {
+  // Debug paths in development
+  if (import.meta.env.DEV) {
+    debugPaths()
+  }
+  
   initializeSignalR()
   setupDragAndDrop()
 })
@@ -133,8 +129,10 @@ function generateSessionId() {
 }
 
 async function initializeSignalR() {
+  const hubUrl = buildSignalRUrl('chatHub')
+  
   connection = new signalR.HubConnectionBuilder()
-    .withUrl('/chatHub')
+    .withUrl(hubUrl)
     .withAutomaticReconnect()
     .build()
 
@@ -153,7 +151,7 @@ async function initializeSignalR() {
 
   try {
     await connection.start()
-    console.log('SignalR connection started')
+    console.log(`SignalR connection started to: ${hubUrl}`)
   } catch (err) {
     console.error('SignalR connection error:', err)
   }
@@ -204,6 +202,8 @@ async function sendMessage() {
 }
 
 async function sendMessageWithFiles(message) {
+  const apiUrl = buildApiUrl('api/chat/send-with-files')
+  
   const formData = new FormData()
   formData.append('message', message || 'Please analyze the attached files.')
   formData.append('sessionId', sessionId)
@@ -213,7 +213,7 @@ async function sendMessageWithFiles(message) {
   })
 
   try {
-    const response = await fetch('/api/chat/send-with-files', {
+    const response = await fetch(apiUrl, {
       method: 'POST',
       body: formData
     })
@@ -315,7 +315,7 @@ function setupDragAndDrop() {
 .chat-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 70px);
+  height: 100%;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   position: relative;
   overflow: hidden;
@@ -360,45 +360,6 @@ function setupDragAndDrop() {
 .drag-text {
   font-size: 1.5rem;
   font-weight: 600;
-}
-
-.chat-header {
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 20px;
-  flex-shrink: 0;
-}
-
-.header-content {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.onboarding-buddy-icon {
-  font-size: 3rem;
-  animation: bounce 2s infinite;
-}
-
-@keyframes bounce {
-  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-10px); }
-  60% { transform: translateY(-5px); }
-}
-
-.header-text h1 {
-  margin: 0;
-  color: white;
-  font-size: 2rem;
-  font-weight: 700;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.header-text p {
-  margin: 5px 0 0;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 1.1rem;
 }
 
 .chat-messages {

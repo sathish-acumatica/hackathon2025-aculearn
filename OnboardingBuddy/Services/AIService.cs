@@ -20,15 +20,18 @@ public class AIService : IAIService
     private readonly ILogger<AIService> _logger;
     private readonly ITrainingMaterialService _trainingService;
     private readonly ISessionService _sessionService;
+    private readonly IAzureKeyVaultService _keyVaultService;
+    private string? _runtimeApiKey;
 
     public AIService(HttpClient httpClient, IOptions<AIConfiguration> config, ILogger<AIService> logger, 
-        ITrainingMaterialService trainingService, ISessionService sessionService)
+        ITrainingMaterialService trainingService, ISessionService sessionService, IAzureKeyVaultService keyVaultService)
     {
         _httpClient = httpClient;
         _config = config.Value;
         _logger = logger;
         _trainingService = trainingService;
         _sessionService = sessionService;
+        _keyVaultService = keyVaultService;
     }
 
     public async Task<string> ProcessMessageAsync(string message)
@@ -104,6 +107,11 @@ public class AIService : IAIService
             {
                 return CreateRateLimitMessage();
             }
+
+            if (IsContentLimitError(ex))
+            {
+                return CreateContentLimitMessage();
+            }
             
             return await GetFallbackResponseAsync(message);
         }
@@ -113,17 +121,36 @@ public class AIService : IAIService
     {
         try
         {
-            var welcomePrompt = @"
-                Generate a personalized welcome message for a new employee starting their onboarding.
-                Be enthusiastic, professional, and include next steps.
-                Ask about their role and provide clear guidance for getting started.
-            ";
+            // If AI is not configured, return the default welcome immediately
+            if (string.IsNullOrWhiteSpace(_config.ApiUrl))
+            {
+                return GetDefaultWelcomeMessage();
+            }
 
-            return await ProcessSessionMessageAsync(welcomePrompt, sessionId);
+            // Use a simplified prompt to avoid content limits
+            var welcomePrompt = @"Generate a brief, friendly welcome message for a new employee. 
+                Ask about their role and provide a clear first step for their onboarding.
+                Keep it concise and professional.";
+
+            // Use a simpler request with minimal context to avoid content limits
+            var requestPayload = new
+            {
+                model = _config.Model,
+                max_tokens = Math.Min(_config.MaxTokens, 500), // Limit tokens for welcome
+                temperature = _config.Temperature,
+                system = "You are OnboardingBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise.",
+                messages = new[]
+                {
+                    new { role = "user", content = welcomePrompt }
+                }
+            };
+
+            var response = await SendAIRequestAsync(requestPayload);
+            return ExtractResponseText(response);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error generating welcome message for session {SessionId}", sessionId);
+            _logger.LogError(ex, "Error generating welcome message for session {SessionId}, using default", sessionId);
             return GetDefaultWelcomeMessage();
         }
     }
@@ -137,9 +164,9 @@ public class AIService : IAIService
             model = _config.Model,
             max_tokens = _config.MaxTokens,
             temperature = _config.Temperature,
+            system = systemPrompt, // System prompt as top-level parameter
             messages = new[]
             {
-                new { role = "system", content = systemPrompt },
                 new { role = "user", content = message }
             }
         };
@@ -153,20 +180,90 @@ public class AIService : IAIService
                "You are OnboardingBuddy, an AI assistant helping new employees with their onboarding journey.";
     }
 
+    private async Task<string> GetApiKeyAsync()
+    {
+        // Return cached runtime key if available
+        if (!string.IsNullOrWhiteSpace(_runtimeApiKey))
+        {
+            _logger.LogInformation("Using cached API key (length: {Length})", _runtimeApiKey.Length);
+            return _runtimeApiKey;
+        }
+
+        // Try to get from Azure Key Vault first
+        if (await _keyVaultService.IsConfiguredAsync())
+        {
+            _logger.LogInformation("Azure Key Vault is configured, attempting to retrieve API key...");
+            var keyVaultApiKey = await _keyVaultService.GetApiKeyAsync();
+            if (!string.IsNullOrWhiteSpace(keyVaultApiKey))
+            {
+                _runtimeApiKey = keyVaultApiKey;
+                _logger.LogInformation("Successfully retrieved API key from Azure Key Vault (length: {Length}, starts with: {Prefix})", 
+                    _runtimeApiKey.Length, _runtimeApiKey.Substring(0, Math.Min(8, _runtimeApiKey.Length)));
+                return _runtimeApiKey;
+            }
+            else
+            {
+                _logger.LogWarning("Azure Key Vault returned null or empty API key");
+            }
+        }
+        else
+        {
+            _logger.LogInformation("Azure Key Vault is not configured, checking configuration fallback...");
+        }
+
+        // Fallback to configuration
+        if (!string.IsNullOrWhiteSpace(_config.ApiKey))
+        {
+            _runtimeApiKey = _config.ApiKey;
+            _logger.LogInformation("Using API key from configuration (length: {Length}, starts with: {Prefix})", 
+                _runtimeApiKey.Length, _runtimeApiKey.Substring(0, Math.Min(8, _runtimeApiKey.Length)));
+            return _runtimeApiKey;
+        }
+
+        _logger.LogError("No API key available from Azure Key Vault or configuration");
+        return string.Empty;
+    }
+
     private async Task<string> SendAIRequestAsync(object payload)
     {
+        var apiKey = await GetApiKeyAsync();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("No API key available for AI service");
+        }
+
+        // Get Azure access token for Bearer authorization
+        var accessToken = await _keyVaultService.GetAccessTokenAsync();
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            _logger.LogWarning("No Azure access token available, using API key only");
+        }
+
         var json = JsonSerializer.Serialize(payload);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
         _httpClient.DefaultRequestHeaders.Clear();
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_config.ApiKey}");
-        _httpClient.DefaultRequestHeaders.Add("anthropic-version", _config.ApiVersion);
+        
+        // Add Bearer token if available (matching your PowerShell script)
+        if (!string.IsNullOrWhiteSpace(accessToken))
+        {
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {accessToken}");
+            _logger.LogInformation("Using Azure access token for authorization");
+        }
+        
+        // Add API key as subscription key (matching your PowerShell script)
+        _httpClient.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", apiKey);
+        _httpClient.DefaultRequestHeaders.Add("api-version", _config.ApiVersion);
+
+        _logger.LogInformation("Making AI API request with access token: {HasToken}, subscription key length: {KeyLength}", 
+            !string.IsNullOrWhiteSpace(accessToken), apiKey.Length);
 
         var response = await _httpClient.PostAsync(_config.ApiUrl, content);
         
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("AI API request failed: {StatusCode} - {ErrorContent}", response.StatusCode, errorContent);
             throw new HttpRequestException($"AI API request failed: {response.StatusCode} - {errorContent}");
         }
 
@@ -238,7 +335,8 @@ public class AIService : IAIService
     private bool IsContentLimitError(Exception ex)
     {
         return ex.Message.Contains("token") || 
-               (ex.Message.Contains("content") && ex.Message.Contains("limit"));
+               ex.Message.Contains("content") && ex.Message.Contains("limit") ||
+               ex.Message.Contains("maximum context length");
     }
 
     private string CreateRateLimitMessage()
@@ -253,31 +351,33 @@ public class AIService : IAIService
     private string CreateContentLimitMessage()
     {
         return @"<div class='content-limit-message'>
-            <h3>📚 Too Much Content</h3>
-            <p>That's a lot of information! Let me help you break it down into smaller pieces.</p>
-            <p><strong>Try asking me about:</strong></p>
+            <h3>📝 Content Simplified</h3>
+            <p>Your request contained quite a bit of content. Let me help you with a more focused approach.</p>
+            <p><strong>For better results, try:</strong></p>
             <ul>
-                <li>🎯 One specific topic at a time</li>
-                <li>📝 Particular features or processes</li>
-                <li>❓ Specific questions you have</li>
+                <li>🎯 Asking about one specific topic</li>
+                <li>📝 Breaking complex questions into parts</li>
+                <li>❓ Being more specific about what you need</li>
             </ul>
-            <p>What's the main thing you'd like to learn about first? 🚀</p>
+            <p>What specific aspect would you like to explore first? 🚀</p>
         </div>";
     }
 
     private string GetDefaultWelcomeMessage()
     {
         return @"<div class='welcome-message'>
-            <h2>🎉 Welcome to OnboardingBuddy!</h2>
-            <p>I'm your dedicated AI onboarding assistant, and I'm excited to help you get started!</p>
-            <p><strong>What can I help you with today?</strong></p>
-            <ul>
-                <li>🚀 Getting started with your new role</li>
-                <li>📚 Finding training materials</li>
-                <li>❓ Answering questions about company policies</li>
-                <li>📋 Tracking your onboarding progress</li>
-            </ul>
-            <p>Let's make your onboarding journey smooth and successful! What would you like to know first?</p>
+            <h2>🎉 Welcome to your new role!</h2>
+            <p>I'm OnboardingBuddy, your AI onboarding assistant. I'm here to guide you through your first steps and help you succeed in your new position!</p>
+            
+            <p><strong>Let's get started! 🚀</strong></p>
+            
+            <p>First, I'd love to know: <strong>What role will you be working in?</strong> This helps me provide personalized guidance for your department.</p>
+            
+            <p><strong>Your first step:</strong> Complete IT setup and security training. Most new hires finish this within their first day.</p>
+            
+            <p>I'll check back with you regularly to help with your progress. Feel free to ask me questions anytime!</p>
+            
+            <p><em>What questions do you have to get started? 💬</em></p>
         </div>";
     }
 }

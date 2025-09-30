@@ -1,10 +1,20 @@
 #!/usr/bin/env pwsh
 
-Write-Host "OnboardingBuddy - One-Click Publish to IIS" -ForegroundColor Green
-Write-Host "==========================================" -ForegroundColor Green
+param(
+    [Parameter(Mandatory=$false)]
+    [string]$VirtualAppName = "OnboardingBuddy",
+    
+    [Parameter(Mandatory=$false)]
+    [string]$PublishPath = "C:\Sites"
+)
+
+Write-Host "OnboardingBuddy - Flexible Virtual Application Deploy" -ForegroundColor Green
+Write-Host "=================================================" -ForegroundColor Green
+Write-Host "Virtual Application: $VirtualAppName" -ForegroundColor Cyan
+Write-Host "Deploy Path: $PublishPath\$VirtualAppName" -ForegroundColor Cyan
 Write-Host ""
 
-$publishPath = "C:\Sites\OnboardingBuddy"
+$fullPublishPath = Join-Path $PublishPath $VirtualAppName
 
 # Ensure we're in the OnboardingBuddy project directory
 if (-not (Test-Path "OnboardingBuddy.csproj")) {
@@ -12,12 +22,12 @@ if (-not (Test-Path "OnboardingBuddy.csproj")) {
     exit 1
 }
 
-# Stop OnboardingBuddy app pool
-Write-Host "Stopping OnboardingBuddy app pool..." -ForegroundColor Yellow
+# Stop app pool
+Write-Host "Stopping $VirtualAppName app pool..." -ForegroundColor Yellow
 try {
     Import-Module WebAdministration -ErrorAction SilentlyContinue
     if (Get-Module WebAdministration) {
-        Stop-WebAppPool -Name "OnboardingBuddy" -ErrorAction SilentlyContinue
+        Stop-WebAppPool -Name $VirtualAppName -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
         Write-Host "? App pool stopped" -ForegroundColor Green
     }
@@ -25,9 +35,9 @@ try {
     Write-Host "? Could not stop app pool (may not be running)" -ForegroundColor Yellow
 }
 
-# Clean and rebuild Vue.js frontend to ensure proper relative paths
+# Build Vue.js frontend with dynamic path detection
 Write-Host ""
-Write-Host "Building Vue.js frontend with relative paths..." -ForegroundColor Yellow
+Write-Host "Building Vue.js frontend with universal path support..." -ForegroundColor Yellow
 Set-Location "ClientApp"
 
 # Clean previous build
@@ -43,29 +53,34 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Build with Vite configuration that ensures relative paths
+# Build with dynamic configuration
 npm run build
 if ($LASTEXITCODE -ne 0) {
     Write-Error "? Failed to build Vue.js application"
     exit 1
 }
 
-# Verify that relative paths were generated correctly
+# Verify the build and check for the base tag injection
 $indexPath = "dist\index.html"
 if (Test-Path $indexPath) {
     $content = Get-Content $indexPath -Raw
     
-    # Check for absolute paths (bad)
-    if ($content -match 'src="/[^.]' -or $content -match 'href="/[^.]') {
-        Write-Host "? ERROR: Still generating absolute paths!" -ForegroundColor Red
-        exit 1
+    # Check for our base tag injection script
+    if ($content -match 'window\.location\.pathname') {
+        Write-Host "? Vue.js built with dynamic base tag injection!" -ForegroundColor Green
+        Write-Host "  Base tag will be set automatically based on deployment location" -ForegroundColor Cyan
+    } else {
+        Write-Host "? WARNING: Base tag injection script not found" -ForegroundColor Yellow
     }
     
-    # Check for relative paths (good)
-    if ($content -match 'src="[^/]' -or $content -match 'href="[^/]') {
-        Write-Host "? Vue.js built with relative paths!" -ForegroundColor Green
+    # Check for relative paths
+    if ($content -match 'src="\.?/?assets/' -or $content -match 'href="\.?/?assets/') {
+        Write-Host "? Assets use relative paths" -ForegroundColor Green
     } else {
-        Write-Host "? No asset paths found in HTML" -ForegroundColor Yellow
+        Write-Host "? WARNING: Assets may not use relative paths" -ForegroundColor Yellow
+        $content.Split("`n") | Where-Object { $_ -match '(src="|href=")' } | Select-Object -First 3 | ForEach-Object {
+            Write-Host "  $_" -ForegroundColor Yellow
+        }
     }
 } else {
     Write-Error "? Vue.js build failed - index.html not found"
@@ -79,7 +94,7 @@ Write-Host ""
 Write-Host "Publishing .NET application..." -ForegroundColor Yellow
 dotnet publish "OnboardingBuddy.csproj" `
     --configuration Release `
-    --output $publishPath `
+    --output $fullPublishPath `
     --framework net9.0 `
     --runtime win-x64 `
     --self-contained false `
@@ -97,7 +112,7 @@ Write-Host ""
 Write-Host "Setting up directories..." -ForegroundColor Yellow
 $directories = @("logs", "uploads", "wwwroot", "wwwroot\assets")
 foreach ($dir in $directories) {
-    $dirPath = Join-Path $publishPath $dir
+    $dirPath = Join-Path $fullPublishPath $dir
     if (-not (Test-Path $dirPath)) {
         New-Item -ItemType Directory -Path $dirPath -Force | Out-Null
     }
@@ -105,7 +120,7 @@ foreach ($dir in $directories) {
 
 # Copy Vue.js files to wwwroot
 $distPath = "ClientApp\dist"
-$wwwrootPath = Join-Path $publishPath "wwwroot"
+$wwwrootPath = Join-Path $fullPublishPath "wwwroot"
 
 Write-Host "Copying frontend files to wwwroot..." -ForegroundColor Yellow
 if (Test-Path $distPath) {
@@ -121,6 +136,17 @@ if (Test-Path $distPath) {
         Copy-Item $_.FullName $destinationPath -Force
     }
     Write-Host "? Frontend files copied" -ForegroundColor Green
+    
+    # Verify the deployed HTML has the base tag script
+    $deployedIndexPath = Join-Path $wwwrootPath "index.html"
+    if (Test-Path $deployedIndexPath) {
+        $deployedContent = Get-Content $deployedIndexPath -Raw
+        if ($deployedContent -match 'window\.location\.pathname') {
+            Write-Host "? Deployed HTML includes dynamic base tag script" -ForegroundColor Green
+        } else {
+            Write-Host "? WARNING: Deployed HTML missing base tag script" -ForegroundColor Yellow
+        }
+    }
 } else {
     Write-Error "? Vue.js dist directory not found"
     exit 1
@@ -130,10 +156,10 @@ if (Test-Path $distPath) {
 Write-Host ""
 Write-Host "Setting permissions..." -ForegroundColor Yellow
 try {
-    $acl = Get-Acl $publishPath
+    $acl = Get-Acl $fullPublishPath
     
-    # OnboardingBuddy app pool
-    $appPoolRule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS AppPool\OnboardingBuddy", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+    # App pool identity
+    $appPoolRule = New-Object System.Security.AccessControl.FileSystemAccessRule("IIS AppPool\$VirtualAppName", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
     $acl.SetAccessRule($appPoolRule)
     
     # IIS users
@@ -144,18 +170,18 @@ try {
     $iusrRule = New-Object System.Security.AccessControl.FileSystemAccessRule("IUSR", "ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
     $acl.SetAccessRule($iusrRule)
     
-    Set-Acl $publishPath $acl
-    Write-Host "? Permissions set" -ForegroundColor Green
+    Set-Acl $fullPublishPath $acl
+    Write-Host "? Permissions set for $VirtualAppName app pool" -ForegroundColor Green
 } catch {
     Write-Host "? Could not set permissions: $_" -ForegroundColor Yellow
 }
 
-# Start OnboardingBuddy app pool
+# Start app pool
 Write-Host ""
-Write-Host "Starting OnboardingBuddy app pool..." -ForegroundColor Yellow
+Write-Host "Starting $VirtualAppName app pool..." -ForegroundColor Yellow
 try {
     if (Get-Module WebAdministration) {
-        Start-WebAppPool -Name "OnboardingBuddy" -ErrorAction SilentlyContinue
+        Start-WebAppPool -Name $VirtualAppName -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
         Write-Host "? App pool started" -ForegroundColor Green
     }
@@ -185,12 +211,34 @@ if (Test-Path $assetsDir) {
 Write-Host ""
 Write-Host "?? DEPLOYMENT COMPLETE!" -ForegroundColor Green
 Write-Host ""
-Write-Host "Application URL: http://localhost/OnboardingBuddy" -ForegroundColor Cyan
-Write-Host "Files location: $publishPath" -ForegroundColor Cyan
+Write-Host "?? Universal Path Support Applied:" -ForegroundColor Yellow
+Write-Host "• Dynamic base tag injection for static files" -ForegroundColor White
+Write-Host "• SignalR Hub URLs adapt to deployment location" -ForegroundColor White
+Write-Host "• Chat API calls use correct virtual app path" -ForegroundColor White
+Write-Host "• Admin Panel API calls now use correct paths" -ForegroundColor White
+Write-Host "• Vue Router base path auto-detection" -ForegroundColor White
 Write-Host ""
-Write-Host "? Static files should now load with relative paths (no leading slash)" -ForegroundColor Green
+Write-Host "?? URL Examples for '$VirtualAppName' deployment:" -ForegroundColor Yellow
+Write-Host "• Application: http://localhost/$VirtualAppName" -ForegroundColor White
+Write-Host "• Admin Panel: http://localhost/$VirtualAppName/admin" -ForegroundColor White
+Write-Host "• Training API: http://localhost/$VirtualAppName/api/trainingmaterials" -ForegroundColor White
+Write-Host "• Chat Hub: http://localhost/$VirtualAppName/chatHub" -ForegroundColor White
+Write-Host "• Static Assets: http://localhost/$VirtualAppName/assets/" -ForegroundColor White
 Write-Host ""
-Write-Host "If you still get 404 errors, check that:" -ForegroundColor Yellow
-Write-Host "• OnboardingBuddy virtual application is configured in IIS" -ForegroundColor White
-Write-Host "• Application pool 'OnboardingBuddy' is set to 'No Managed Code'" -ForegroundColor White
-Write-Host "• .NET 9.0 Runtime is installed" -ForegroundColor White
+Write-Host "Deployment Details:" -ForegroundColor Yellow
+Write-Host "• Virtual Application: $VirtualAppName" -ForegroundColor White
+Write-Host "• Physical Path: $fullPublishPath" -ForegroundColor White
+Write-Host "• App Pool: $VirtualAppName (No Managed Code)" -ForegroundColor White
+Write-Host ""
+Write-Host "?? Testing Instructions:" -ForegroundColor Yellow
+Write-Host "1. Navigate to http://localhost/$VirtualAppName" -ForegroundColor White
+Write-Host "2. Check browser console for 'Base path set to: /$VirtualAppName/'" -ForegroundColor White
+Write-Host "3. Test Chat functionality (SignalR)" -ForegroundColor White
+Write-Host "4. Test Admin Panel at http://localhost/$VirtualAppName/admin" -ForegroundColor White
+Write-Host "5. Verify training materials load correctly in Admin Panel" -ForegroundColor White
+Write-Host ""
+Write-Host "?? Flexible Deployment Examples:" -ForegroundColor Yellow
+Write-Host "   .\deploy.ps1                                    # Deploy to OnboardingBuddy" -ForegroundColor White
+Write-Host "   .\deploy.ps1 -VirtualAppName HR                 # Deploy to HR" -ForegroundColor White
+Write-Host "   .\deploy.ps1 -VirtualAppName Training           # Deploy to Training" -ForegroundColor White
+Write-Host "   .\deploy.ps1 -VirtualAppName MyApp -PublishPath D:\ # Deploy to D:\MyApp" -ForegroundColor White

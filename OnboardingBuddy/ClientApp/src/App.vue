@@ -2,7 +2,11 @@
   <div id="app">
     <nav class="app-nav">
       <div class="nav-brand">
-        <h1>🚀 OnboardingBuddy</h1>
+        <div class="brand-icon">🚀</div>
+        <div class="brand-text">
+          <h1>OnboardingBuddy</h1>
+          <p>Your AI-powered onboarding companion</p>
+        </div>
       </div>
       <div class="nav-links">
         <router-link to="/" class="nav-link" :class="{ active: $route.path === '/' }">
@@ -52,16 +56,42 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 70px;
+  min-height: 80px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
-.nav-brand h1 {
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.brand-icon {
+  font-size: 3rem;
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-8px); }
+  60% { transform: translateY(-4px); }
+}
+
+.brand-text h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: 28px;
   color: white;
   font-weight: 700;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  line-height: 1.2;
+}
+
+.brand-text p {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+  line-height: 1.3;
 }
 
 .nav-links {
@@ -79,6 +109,7 @@ body {
   transition: all 0.3s ease;
   border: 2px solid transparent;
   backdrop-filter: blur(10px);
+  white-space: nowrap;
 }
 
 .nav-link:hover {
@@ -102,5 +133,51 @@ body {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(10px);
   min-height: 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .app-nav {
+    padding: 0 15px;
+    min-height: 70px;
+  }
+  
+  .brand-icon {
+    font-size: 2.5rem;
+  }
+  
+  .brand-text h1 {
+    font-size: 22px;
+  }
+  
+  .brand-text p {
+    font-size: 12px;
+  }
+  
+  .nav-links {
+    gap: 10px;
+  }
+  
+  .nav-link {
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-nav {
+    flex-direction: column;
+    padding: 15px;
+    min-height: auto;
+    gap: 15px;
+  }
+  
+  .nav-brand {
+    gap: 10px;
+  }
+  
+  .brand-text {
+    text-align: center;
+  }
 }
 </style>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>
+  (function() {
+    // Get the current path and determine the base for the virtual application
+    const path = window.location.pathname;
+    let basePath = './';
+    
+    // If we're not at the root, extract the virtual application base
+    if (path !== '/' && path !== '') {
+      const segments = path.split('/').filter(segment => segment !== '');
+      if (segments.length > 0) {
+        // Check if first segment looks like a virtual app (not a common route)
+        const firstSegment = segments[0];
+        const commonRoutes = ['admin', 'chat', 'login', 'dashboard', 'api', 'assets'];
+        
+        if (!commonRoutes.includes(firstSegment.toLowerCase())) {
+          // This is likely a virtual application
+          basePath = '/' + firstSegment + '/';
+        }
+      }
+    }
+    
+    // Create and inject the base tag
+    const baseTag = document.createElement('base');
+    baseTag.href = basePath;
+    document.head.insertBefore(baseTag, document.head.firstChild);
+    
+    // Debug info
+    console.log('Virtual App Detection:', {
+      currentPath: path,
+      basePath: basePath,
+      url: window.location.href
+    });
+  })();
+</script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OnboardingBuddy - AI-Powered Employee Onboarding</title>
+    <!-- This will be updated dynamically by the build process for virtual applications -->
+    <link rel="icon" type="image/svg+xml" href="onboarding-buddy-icon.svg" />
+    <style>
+        body { 
+            margin: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        #app {
+            height: 100vh;
+        }
+    </style>
+  <script type="module" crossorigin src="./assets/index-DFHmcGMZ.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-B6ZMHLdA.css">
+</head>
+<body>
+    <div id="app"></div>
+</body>
+</html>

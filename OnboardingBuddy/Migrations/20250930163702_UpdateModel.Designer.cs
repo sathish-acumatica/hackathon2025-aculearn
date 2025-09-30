@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using OnboardingBuddy.Data;
 
@@ -10,9 +11,11 @@ using OnboardingBuddy.Data;
 namespace OnboardingBuddy.Migrations
 {
     [DbContext(typeof(OnboardingDbContext))]
-    partial class OnboardingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250930163702_UpdateModel")]
+    partial class UpdateModel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.0");

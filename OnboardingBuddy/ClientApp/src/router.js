@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ChatInterface from './components/ChatInterface.vue'
 import AdminPanel from './views/AdminPanel.vue'
+import { getRouterBasePath } from './utils/pathUtils.js'
 
 const routes = [
   {
@@ -16,7 +17,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(getRouterBasePath()),
   routes
 })
 

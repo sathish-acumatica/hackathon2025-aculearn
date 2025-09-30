@@ -46,6 +46,7 @@ builder.Services.AddScoped<IAIService, AIService>();
 builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
 builder.Services.AddScoped<IFileUploadService, FileUploadService>();
 builder.Services.AddSingleton<ISessionService, SessionService>();
+builder.Services.AddScoped<IAzureKeyVaultService, AzureKeyVaultService>();
 builder.Services.AddHttpClient();
 
 // Add configuration
@@ -98,11 +99,14 @@ app.UseSpa(spa =>
     spa.Options.SourcePath = "wwwroot";
     spa.Options.DefaultPage = "/index.html";
     
-    if (app.Environment.IsDevelopment())
-    {
-        // In development, proxy to the Vite dev server
-        spa.UseProxyToSpaDevelopmentServer("http://localhost:3000");
-    }
+    // Note: In production, files are served from wwwroot
+    // For development, comment out the proxy line below and build the client app to wwwroot
+    
+    // if (app.Environment.IsDevelopment())
+    // {
+    //     // In development, proxy to the Vite dev server
+    //     spa.UseProxyToSpaDevelopmentServer("http://localhost:3000");
+    // }
     // In production, files are already in wwwroot - no additional configuration needed
 });
 

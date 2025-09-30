@@ -1,18 +1,5 @@
 <template>
   <div class="admin-panel">
-    <div class="admin-header">
-      <div class="header-content">
-        <div class="admin-icon">⚙️</div>
-        <div class="header-text">
-          <h1>OnboardingBuddy Admin</h1>
-          <p>Manage training materials and content</p>
-        </div>
-      </div>
-      <button @click="showCreateModal = true" class="btn-create">
-        ➕ Add New Material
-      </button>
-    </div>
-
     <!-- Filter Bar -->
     <div class="filter-section">
       <div class="search-container">
@@ -35,6 +22,9 @@
           <input type="checkbox" v-model="showActiveOnly" />
           <span>Active Only</span>
         </label>
+        <button @click="showCreateModal = true" class="btn-create">
+          ➕ Add New Material
+        </button>
       </div>
     </div>
 
@@ -167,6 +157,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { buildApiUrl, debugPaths } from '../utils/pathUtils.js'
 
 // Reactive data
 const materials = ref([])
@@ -217,15 +208,25 @@ const filteredMaterials = computed(() => {
 
 // Methods
 onMounted(() => {
+  // Debug paths in development
+  if (import.meta.env.DEV) {
+    debugPaths()
+  }
+  
   loadMaterials()
 })
 
 async function loadMaterials() {
   loading.value = true
   try {
-    const response = await fetch('/api/trainingmaterials')
+    const apiUrl = buildApiUrl('api/trainingmaterials')
+    console.log('Loading materials from:', apiUrl)
+    
+    const response = await fetch(apiUrl)
     if (response.ok) {
       materials.value = await response.json()
+    } else {
+      console.error('Failed to load materials:', response.status, response.statusText)
     }
   } catch (error) {
     console.error('Error loading materials:', error)
@@ -242,12 +243,17 @@ async function deleteMaterial(id) {
   if (!confirm('Are you sure you want to delete this material?')) return
 
   try {
-    const response = await fetch(`/api/trainingmaterials/${id}`, {
+    const apiUrl = buildApiUrl(`api/trainingmaterials/${id}`)
+    console.log('Deleting material:', apiUrl)
+    
+    const response = await fetch(apiUrl, {
       method: 'DELETE'
     })
     
     if (response.ok) {
       materials.value = materials.value.filter(m => m.id !== id)
+    } else {
+      console.error('Failed to delete material:', response.status, response.statusText)
     }
   } catch (error) {
     console.error('Error deleting material:', error)
@@ -258,13 +264,16 @@ async function saveMaterial() {
   saving.value = true
   
   try {
-    const url = showEditModal.value 
-      ? `/api/trainingmaterials/${currentMaterial.value.id}`
-      : '/api/trainingmaterials'
+    const endpoint = showEditModal.value 
+      ? `api/trainingmaterials/${currentMaterial.value.id}`
+      : 'api/trainingmaterials'
     
+    const apiUrl = buildApiUrl(endpoint)
     const method = showEditModal.value ? 'PUT' : 'POST'
     
-    const response = await fetch(url, {
+    console.log('Saving material:', method, apiUrl)
+    
+    const response = await fetch(apiUrl, {
       method,
       headers: {
         'Content-Type': 'application/json'
@@ -285,6 +294,8 @@ async function saveMaterial() {
       }
       
       closeModal()
+    } else {
+      console.error('Failed to save material:', response.status, response.statusText)
     }
   } catch (error) {
     console.error('Error saving material:', error)
@@ -318,69 +329,13 @@ function formatDate(dateString) {
 
 <style scoped>
 .admin-panel {
-  min-height: 100vh;
+  height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 20px;
-}
-
-.admin-header {
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(20px);
-  border-radius: 20px;
-  padding: 30px;
-  margin-bottom: 30px;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-}
-
-.header-content {
-  display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 20px;
-}
-
-.admin-icon {
-  font-size: 3rem;
-  animation: rotate 3s linear infinite;
-}
-
-@keyframes rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.header-text h1 {
-  margin: 0;
-  color: white;
-  font-size: 2.5rem;
-  font-weight: 700;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.header-text p {
-  margin: 5px 0 0;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 1.2rem;
-}
-
-.btn-create {
-  background: linear-gradient(135deg, #ff7b7b 0%, #ff9a56 100%);
-  color: white;
-  border: none;
-  padding: 15px 25px;
-  border-radius: 25px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(255, 123, 123, 0.3);
-}
-
-.btn-create:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(255, 123, 123, 0.4);
+  overflow: hidden;
 }
 
 .filter-section {
@@ -388,12 +343,12 @@ function formatDate(dateString) {
   backdrop-filter: blur(20px);
   border-radius: 20px;
   padding: 25px;
-  margin-bottom: 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 20px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
 }
 
 .search-container {
@@ -456,12 +411,33 @@ function formatDate(dateString) {
   height: 18px;
 }
 
+.btn-create {
+  background: linear-gradient(135deg, #ff7b7b 0%, #ff9a56 100%);
+  color: white;
+  border: none;
+  padding: 15px 25px;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(255, 123, 123, 0.3);
+  white-space: nowrap;
+}
+
+.btn-create:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 123, 123, 0.4);
+}
+
 .materials-container {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(10px);
   border-radius: 20px;
   padding: 30px;
-  min-height: 400px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .loading-state, .empty-state {
@@ -741,5 +717,22 @@ function formatDate(dateString) {
   background: #cbd5e0;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .filter-section {
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .filter-controls {
+    flex-wrap: wrap;
+    gap: 15px;
+  }
+  
+  .materials-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

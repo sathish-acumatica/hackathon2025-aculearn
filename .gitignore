@@ -583,3 +583,8 @@ logs/
 # Backup files
 *.backup
 *.bak
+
+
+
+#CUSTOM
+appsettings.json

@@ -20,4 +20,17 @@ public class AIConfiguration
     public int MaxTokens { get; set; } = 1000;
     public double Temperature { get; set; } = 0.7;
     public string ApiVersion { get; set; } = "2024-10-01-preview";
+    
+    // Azure Key Vault Configuration
+    public AzureKeyVaultConfiguration? AzureKeyVault { get; set; }
+}
+
+public class AzureKeyVaultConfiguration
+{
+    public string TenantId { get; set; } = string.Empty;
+    public string ClientId { get; set; } = string.Empty;
+    public string ClientSecret { get; set; } = string.Empty;
+    public string KeyVaultName { get; set; } = string.Empty;
+    public string ApiKeySecretName { get; set; } = string.Empty;
+    public bool Enabled { get; set; } = false;
 }
