@@ -350,25 +350,32 @@ async function handlePaste(e) {
         if (item.kind === 'file') {
             const file = item.getAsFile();
             if (file) {
+                // Give pasted images a proper filename if they don't have one
+                if (!file.name || file.name === 'blob') {
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const extension = file.type.split('/')[1] || 'png';
+                    Object.defineProperty(file, 'name', {
+                        writable: false,
+                        value: `pasted-image-${timestamp}.${extension}`
+                    });
+                }
                 files.push(file);
-                console.log('File found in clipboard:', file.name, file.type);
+                console.log('File found in clipboard:', file.name, file.type, file.size);
             }
         }
     }
 
     // If files were found, add them to the FileUpload component
     if (files.length > 0) {
-        console.log('Files found');
+        console.log('Files found, adding to selected files:', files.length);
         e.preventDefault(); // Prevent default paste behavior
 
-        // Create a mock event object that matches what FileUpload expects
-        const pastedFileContent = {
-            target: {
-                files: files
-            }
-        };
-
-        onFileSelected(pastedFileContent);
+        // Add files directly to selectedFiles instead of using onFileSelected
+        selectedFiles.value.push(...files);
+        
+        console.log('Total selected files now:', selectedFiles.value.length);
+    } else {
+        console.log('No files found in clipboard');
     }
 } 
 

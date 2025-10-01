@@ -184,6 +184,9 @@ public class AIService : IAIService
     {
         var systemPrompt = BuildSystemPrompt(context);
         
+        // Build message content with images if present
+        var messageContent = BuildMessageContent(message, files);
+        
         return new
         {
             model = _config.Model,
@@ -192,9 +195,56 @@ public class AIService : IAIService
             system = systemPrompt, // System prompt as top-level parameter
             messages = new[]
             {
-                new { role = "user", content = message }
+                new { role = "user", content = messageContent }
             }
         };
+    }
+
+    private object BuildMessageContent(string message, List<FileUpload>? files)
+    {
+        var contentParts = new List<object>();
+        
+        // Add text message
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            contentParts.Add(new { type = "text", text = message });
+        }
+        
+        // Add images
+        if (files != null)
+        {
+            foreach (var file in files)
+            {
+                if (IsImageFile(file.ContentType))
+                {
+                    var base64Data = Convert.ToBase64String(file.FileContent);
+                    contentParts.Add(new
+                    {
+                        type = "image",
+                        source = new
+                        {
+                            type = "base64",
+                            media_type = file.ContentType,
+                            data = base64Data
+                        }
+                    });
+                }
+            }
+        }
+        
+        // If only text, return string. If mixed content, return array
+        if (contentParts.Count == 1 && contentParts[0] is { } textPart && 
+            textPart.GetType().GetProperty("type")?.GetValue(textPart)?.ToString() == "text")
+        {
+            return textPart.GetType().GetProperty("text")?.GetValue(textPart)?.ToString() ?? message;
+        }
+        
+        return contentParts.ToArray();
+    }
+    
+    private bool IsImageFile(string contentType)
+    {
+        return contentType?.StartsWith("image/") == true;
     }
 
     private object CreateRequestPayloadWithHistory(string message, string context, List<string> conversationHistory)
