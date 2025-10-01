@@ -12,7 +12,22 @@ function generateSessionId() {
 // Get or create a persistent session ID for this browser
 export function getBrowserSessionId() {
   try {
-    // Always create a new session on page load/reload
+    // First check if we have an existing session
+    const stored = sessionStorage.getItem(SESSION_STORAGE_KEY)
+    if (stored) {
+      const sessionData = JSON.parse(stored)
+      const ageMinutes = (Date.now() - sessionData.timestamp) / (1000 * 60)
+      
+      // If session is still valid (within timeout), use it
+      if (ageMinutes < SESSION_TIMEOUT_MINUTES) {
+        console.log('Using existing browser session:', sessionData.sessionId, `(age: ${ageMinutes.toFixed(1)} min)`)
+        return sessionData.sessionId
+      } else {
+        console.log('Session expired, creating new one')
+      }
+    }
+    
+    // Create a new session if no valid existing session
     const newSessionId = generateSessionId()
     const sessionData = {
       sessionId: newSessionId,
@@ -38,6 +53,26 @@ export function clearBrowserSession() {
     console.log('Browser session cleared')
   } catch (error) {
     console.warn('Could not clear session storage:', error)
+  }
+}
+
+// Force create a new session (for explicit session reset)
+export function createNewBrowserSession() {
+  try {
+    const newSessionId = generateSessionId()
+    const sessionData = {
+      sessionId: newSessionId,
+      timestamp: Date.now(),
+      created: new Date().toISOString()
+    }
+    
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData))
+    console.log('Force created new browser session:', newSessionId)
+    return newSessionId
+    
+  } catch (error) {
+    console.warn('Session storage not available, using temporary session:', error)
+    return generateSessionId()
   }
 }
 

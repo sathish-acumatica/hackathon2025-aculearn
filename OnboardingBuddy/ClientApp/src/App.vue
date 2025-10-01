@@ -27,16 +27,12 @@
 
 <script setup>
 // Main App component
+import { createNewBrowserSession } from './utils/sessionUtils.js'
 
 // Handler for clicking the brand/logo to reload page and start new session
 function handleBrandClick() {
-  // Clear any session storage to ensure a fresh session
-  try {
-    sessionStorage.clear()
-    console.log('Cleared session storage for new session')
-  } catch (error) {
-    console.warn('Could not clear session storage:', error)
-  }
+  // Create a new session explicitly
+  createNewBrowserSession()
   
   // Force reload the page to start a completely new session
   window.location.reload()
