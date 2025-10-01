@@ -20,6 +20,7 @@ public class AIConfiguration
     public string Model { get; set; } = "claude-3-haiku-20240307";
     public int MaxTokens { get; set; } = 1000;
     public double Temperature { get; set; } = 0.7;
+    public bool EnableStreaming { get; set; } = false;
     public string ApiVersion { get; set; } = "2024-10-01-preview";
     
     // Azure Key Vault Configuration

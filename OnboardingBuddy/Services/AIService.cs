@@ -187,18 +187,55 @@ public class AIService : IAIService
                 Ask about their role and provide a clear first step for their onboarding.
                 Keep it concise and professional.";
 
-            // Use a simpler request with minimal context to avoid content limits
-            var requestPayload = new
+            object requestPayload;
+            
+            if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
             {
-                model = _config.Model,
-                max_tokens = Math.Min(_config.MaxTokens, 500), // Limit tokens for welcome
-                temperature = _config.Temperature,
-                system = "You are AcuBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise.",
-                messages = new[]
+                // Check if using Responses API
+                if (_config.ApiUrl.Contains("responses", StringComparison.OrdinalIgnoreCase))
                 {
-                    new { role = "user", content = welcomePrompt }
+                    // OpenAI Responses API format
+                    var inputText = "You are AcuBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise.\n\nUser: " + welcomePrompt + "\nAssistant:";
+                    
+                    requestPayload = new
+                    {
+                        model = _config.Model,
+                        max_output_tokens = Math.Min(_config.MaxTokens, 500),
+                        temperature = _config.Temperature,
+                        input = inputText
+                    };
                 }
-            };
+                else
+                {
+                    // OpenAI Chat Completions API format
+                    requestPayload = new
+                    {
+                        model = _config.Model,
+                        max_tokens = Math.Min(_config.MaxTokens, 500),
+                        temperature = _config.Temperature,
+                        messages = new[]
+                        {
+                            new { role = "system", content = "You are AcuBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise." },
+                            new { role = "user", content = welcomePrompt }
+                        }
+                    };
+                }
+            }
+            else
+            {
+                // Claude/Anthropic format
+                requestPayload = new
+                {
+                    model = _config.Model,
+                    max_tokens = Math.Min(_config.MaxTokens, 500),
+                    temperature = _config.Temperature,
+                    system = "You are AcuBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise.",
+                    messages = new[]
+                    {
+                        new { role = "user", content = welcomePrompt }
+                    }
+                };
+            }
 
             var response = await SendAIRequestAsync(requestPayload);
             return ExtractResponseText(response);
@@ -217,17 +254,38 @@ public class AIService : IAIService
         // Build message content with images if present
         var messageContent = BuildMessageContent(message, files);
         
-        return new
+        if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
         {
-            model = _config.Model,
-            max_tokens = _config.MaxTokens,
-            temperature = _config.Temperature,
-            system = systemPrompt, // System prompt as top-level parameter
-            messages = new[]
+            // OpenAI format
+            var messages = new List<object>
             {
+                new { role = "system", content = systemPrompt },
                 new { role = "user", content = messageContent }
-            }
-        };
+            };
+            
+            return new
+            {
+                model = _config.Model,
+                max_tokens = _config.MaxTokens,
+                temperature = _config.Temperature,
+                messages = messages.ToArray()
+            };
+        }
+        else
+        {
+            // Claude/Anthropic format
+            return new
+            {
+                model = _config.Model,
+                max_tokens = _config.MaxTokens,
+                temperature = _config.Temperature,
+                system = systemPrompt,
+                messages = new[]
+                {
+                    new { role = "user", content = messageContent }
+                }
+            };
+        }
     }
 
     private object BuildMessageContent(string message, List<FileUpload>? files)
@@ -248,16 +306,33 @@ public class AIService : IAIService
                 if (IsImageFile(file.ContentType))
                 {
                     var base64Data = Convert.ToBase64String(file.FileContent);
-                    contentParts.Add(new
+                    
+                    if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
                     {
-                        type = "image",
-                        source = new
+                        // OpenAI format for images
+                        contentParts.Add(new
                         {
-                            type = "base64",
-                            media_type = file.ContentType,
-                            data = base64Data
-                        }
-                    });
+                            type = "image_url",
+                            image_url = new
+                            {
+                                url = $"data:{file.ContentType};base64,{base64Data}"
+                            }
+                        });
+                    }
+                    else
+                    {
+                        // Claude/Anthropic format for images
+                        contentParts.Add(new
+                        {
+                            type = "image",
+                            source = new
+                            {
+                                type = "base64",
+                                media_type = file.ContentType,
+                                data = base64Data
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -284,6 +359,13 @@ public class AIService : IAIService
         // Build messages array with conversation history
         var messages = new List<object>();
         
+        // Add system message for OpenAI and Ollama
+        if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase) || 
+            string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            messages.Add(new { role = "system", content = systemPrompt });
+        }
+        
         // Add conversation history
         for (int i = 0; i < conversationHistory.Count; i += 2)
         {
@@ -303,14 +385,73 @@ public class AIService : IAIService
         // Add current message
         messages.Add(new { role = "user", content = message });
         
-        return new
+        if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
         {
-            model = _config.Model,
-            max_tokens = _config.MaxTokens,
-            temperature = _config.Temperature,
-            system = systemPrompt,
-            messages = messages.ToArray()
-        };
+            // Check if using Responses API
+            if (_config.ApiUrl.Contains("responses", StringComparison.OrdinalIgnoreCase))
+            {
+                // OpenAI Responses API format - flatten to single input string
+                var inputText = systemPrompt;
+                
+                // Add conversation history
+                for (int i = 0; i < conversationHistory.Count; i += 2)
+                {
+                    if (i + 1 < conversationHistory.Count)
+                    {
+                        var userMsg = conversationHistory[i].StartsWith("Human: ") ? 
+                            conversationHistory[i].Substring(7) : conversationHistory[i];
+                        var assistantMsg = conversationHistory[i + 1].StartsWith("Assistant: ") ? 
+                            conversationHistory[i + 1].Substring(11) : conversationHistory[i + 1];
+                            
+                        inputText += $"\n\nUser: {userMsg}\nAssistant: {assistantMsg}";
+                    }
+                }
+                
+                // Add current message
+                inputText += $"\n\nUser: {message}\nAssistant:";
+                
+                return new
+                {
+                    model = _config.Model,
+                    max_output_tokens = _config.MaxTokens,
+                    temperature = _config.Temperature,
+                    input = inputText
+                };
+            }
+            else
+            {
+                // OpenAI Chat Completions API format
+                return new
+                {
+                    model = _config.Model,
+                    max_tokens = _config.MaxTokens,
+                    temperature = _config.Temperature,
+                    messages = messages.ToArray()
+                };
+            }
+        }
+        else if (string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            // Ollama format (similar to OpenAI but with stream parameter)
+            return new
+            {
+                model = _config.Model,
+                messages = messages.ToArray(),
+                stream = _config.EnableStreaming
+            };
+        }
+        else
+        {
+            // Claude/Anthropic format
+            return new
+            {
+                model = _config.Model,
+                max_tokens = _config.MaxTokens,
+                temperature = _config.Temperature,
+                system = systemPrompt,
+                messages = messages.ToArray()
+            };
+        }
     }
 
     private object CreateRequestPayloadWithHistoryAndFiles(string message, string context, List<string> conversationHistory, List<FileUpload> files)
@@ -319,6 +460,13 @@ public class AIService : IAIService
         
         // Build messages array with conversation history
         var messages = new List<object>();
+        
+        // Add system message for OpenAI and Ollama
+        if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase) || 
+            string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            messages.Add(new { role = "system", content = systemPrompt });
+        }
         
         // Add conversation history
         for (int i = 0; i < conversationHistory.Count; i += 2)
@@ -340,14 +488,80 @@ public class AIService : IAIService
         var messageContent = BuildMessageContent(message, files);
         messages.Add(new { role = "user", content = messageContent });
         
-        return new
+        if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
         {
-            model = _config.Model,
-            max_tokens = _config.MaxTokens,
-            temperature = _config.Temperature,
-            system = systemPrompt,
-            messages = messages.ToArray()
-        };
+            // Check if using Responses API
+            if (_config.ApiUrl.Contains("responses", StringComparison.OrdinalIgnoreCase))
+            {
+                // OpenAI Responses API format - flatten to single input string
+                // Note: Responses API may not support image inputs in the same way as Chat Completions
+                var inputText = systemPrompt;
+                
+                // Add conversation history
+                for (int i = 0; i < conversationHistory.Count; i += 2)
+                {
+                    if (i + 1 < conversationHistory.Count)
+                    {
+                        var userMsg = conversationHistory[i].StartsWith("Human: ") ? 
+                            conversationHistory[i].Substring(7) : conversationHistory[i];
+                        var assistantMsg = conversationHistory[i + 1].StartsWith("Assistant: ") ? 
+                            conversationHistory[i + 1].Substring(11) : conversationHistory[i + 1];
+                            
+                        inputText += $"\n\nUser: {userMsg}\nAssistant: {assistantMsg}";
+                    }
+                }
+                
+                // Add current message (flatten content to text only for now)
+                var textContent = message;
+                if (files?.Any() == true)
+                {
+                    var fileContext = BuildFileContext(files);
+                    textContent += $"\n\nAttached Files:\n{fileContext}";
+                }
+                inputText += $"\n\nUser: {textContent}\nAssistant:";
+                
+                return new
+                {
+                    model = _config.Model,
+                    max_output_tokens = _config.MaxTokens,
+                    temperature = _config.Temperature,
+                    input = inputText
+                };
+            }
+            else
+            {
+                // OpenAI Chat Completions API format
+                return new
+                {
+                    model = _config.Model,
+                    max_tokens = _config.MaxTokens,
+                    temperature = _config.Temperature,
+                    messages = messages.ToArray()
+                };
+            }
+        }
+        else if (string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            // Ollama format (similar to OpenAI but with stream parameter)
+            return new
+            {
+                model = _config.Model,
+                messages = messages.ToArray(),
+                stream = _config.EnableStreaming
+            };
+        }
+        else
+        {
+            // Claude/Anthropic format
+            return new
+            {
+                model = _config.Model,
+                max_tokens = _config.MaxTokens,
+                temperature = _config.Temperature,
+                system = systemPrompt,
+                messages = messages.ToArray()
+            };
+        }
     }
 
     private string BuildSystemPrompt(string context)
@@ -442,9 +656,15 @@ IMPORTANT RESPONSE FORMATTING RULES:
                 return _runtimeApiKey;
             }
         }
+        else if (string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation("AIService set to Ollama, no API key required");
+            // Ollama doesn't require an API key
+            return "ollama-no-key-required";
+        }
         else
         {
-            _logger.LogWarning("Unknown AIService value: {AIService}. Expected 'OpenAI' or 'Acumatica'", _config.AIService);
+            _logger.LogWarning("Unknown AIService value: {AIService}. Expected 'OpenAI', 'Acumatica', or 'Ollama'", _config.AIService);
         }
 
         _logger.LogError("No API key available from any configured source");
@@ -454,16 +674,9 @@ IMPORTANT RESPONSE FORMATTING RULES:
     private async Task<string> SendAIRequestAsync(object payload)
     {
         var apiKey = await GetApiKeyAsync();
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (string.IsNullOrWhiteSpace(apiKey) && !string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("No API key available for AI service");
-        }
-
-        // Get Azure access token for Bearer authorization
-        var accessToken = await _keyVaultService.GetAccessTokenAsync();
-        if (string.IsNullOrWhiteSpace(accessToken))
-        {
-            _logger.LogWarning("No Azure access token available, using API key only");
         }
 
         var json = JsonSerializer.Serialize(payload);
@@ -471,19 +684,39 @@ IMPORTANT RESPONSE FORMATTING RULES:
 
         _httpClient.DefaultRequestHeaders.Clear();
         
-        // Add Bearer token if available (matching your PowerShell script)
-        if (!string.IsNullOrWhiteSpace(accessToken))
+        // Configure headers based on AI service type
+        if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
         {
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {accessToken}");
-            _logger.LogInformation("Using Azure access token for authorization");
+            // OpenAI API authentication
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+            _logger.LogInformation("Making OpenAI API request with API key length: {KeyLength}", apiKey.Length);
         }
-        
-        // Add API key as subscription key (matching your PowerShell script)
-        _httpClient.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", apiKey);
-        _httpClient.DefaultRequestHeaders.Add("api-version", _config.ApiVersion);
-
-        _logger.LogInformation("Making AI API request with access token: {HasToken}, subscription key length: {KeyLength}", 
-            !string.IsNullOrWhiteSpace(accessToken), apiKey.Length);
+        else if (string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            // Ollama API - no authentication required
+            _logger.LogInformation("Making Ollama API request to local instance");
+        }
+        else if (string.Equals(_config.AIService, "Acumatica", StringComparison.OrdinalIgnoreCase))
+        {
+            // Azure/Anthropic API authentication
+            var accessToken = await _keyVaultService.GetAccessTokenAsync();
+            if (string.IsNullOrWhiteSpace(accessToken))
+            {
+                _logger.LogWarning("No Azure access token available, using API key only");
+            }
+            
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {accessToken}");
+                _logger.LogInformation("Using Azure access token for authorization");
+            }
+            
+            _httpClient.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", apiKey);
+            _httpClient.DefaultRequestHeaders.Add("api-version", _config.ApiVersion);
+            
+            _logger.LogInformation("Making AI API request with access token: {HasToken}, subscription key length: {KeyLength}", 
+                !string.IsNullOrWhiteSpace(accessToken), apiKey.Length);
+        }
 
         var response = await _httpClient.PostAsync(_config.ApiUrl, content);
         
@@ -502,12 +735,54 @@ IMPORTANT RESPONSE FORMATTING RULES:
         try
         {
             using var document = JsonDocument.Parse(jsonResponse);
-            var content = document.RootElement
-                .GetProperty("content")[0]
-                .GetProperty("text")
-                .GetString();
             
-            return content ?? "I apologize, but I couldn't generate a proper response.";
+            // Handle OpenAI response format
+            if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
+            {
+                // Check if using Responses API
+                if (_config.ApiUrl.Contains("responses", StringComparison.OrdinalIgnoreCase))
+                {
+                    // OpenAI Responses API format
+                    var content = document.RootElement
+                        .GetProperty("output")[0]
+                        .GetProperty("content")[0]
+                        .GetProperty("text")
+                        .GetString();
+                    
+                    return content ?? "I apologize, but I couldn't generate a proper response.";
+                }
+                else
+                {
+                    // OpenAI Chat Completions API format
+                    var content = document.RootElement
+                        .GetProperty("choices")[0]
+                        .GetProperty("message")
+                        .GetProperty("content")
+                        .GetString();
+                    
+                    return content ?? "I apologize, but I couldn't generate a proper response.";
+                }
+            }
+            // Handle Ollama response format (similar to OpenAI)
+            else if (string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
+            {
+                var content = document.RootElement
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString();
+                
+                return content ?? "I apologize, but I couldn't generate a proper response.";
+            }
+            // Handle Claude/Anthropic response format
+            else
+            {
+                var content = document.RootElement
+                    .GetProperty("content")[0]
+                    .GetProperty("text")
+                    .GetString();
+                
+                return content ?? "I apologize, but I couldn't generate a proper response.";
+            }
         }
         catch (Exception ex)
         {

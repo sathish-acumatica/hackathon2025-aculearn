@@ -16,26 +16,51 @@ if (-not (Test-Path "OnboardingBuddy.csproj")) {
     exit 1
 }
 
-# Clean publish directory (preserve appsettings.json)
+# Clean publish directory (preserve appsettings and .env files)
 Write-Host ""
 Write-Host "Cleaning publish directory..." -ForegroundColor Yellow
 if (Test-Path $PublishPath) {
-    # Backup appsettings.json if it exists
-    $appsettingsFile = Join-Path $PublishPath "appsettings.json"
-    $appsettingsBackup = $null
-    if (Test-Path $appsettingsFile) {
-        $appsettingsBackup = Join-Path $env:TEMP "appsettings.json.backup"
+    # Backup all appsettings files if they exist
+    $appsettingsFiles = Get-ChildItem -Path $PublishPath -Filter "appsettings*" -File
+    $appsettingsBackups = @()
+    
+    foreach ($file in $appsettingsFiles) {
+        $backupFile = Join-Path $env:TEMP "$($file.Name).backup"
         try {
-            Copy-Item $appsettingsFile $appsettingsBackup -Force
-            Write-Host "Backed up appsettings.json" -ForegroundColor Green
+            Copy-Item $file.FullName $backupFile -Force
+            $appsettingsBackups += @{
+                Original = $file.FullName
+                Backup = $backupFile
+                Name = $file.Name
+            }
+            Write-Host "Backed up $($file.Name)" -ForegroundColor Green
         } catch {
-            Write-Host "Could not backup appsettings.json: $_" -ForegroundColor Yellow
+            Write-Host "Could not backup $($file.Name): $_" -ForegroundColor Yellow
         }
     }
     
-    # Delete all items except appsettings.json
+    # Backup all .env files if they exist
+    $envFiles = Get-ChildItem -Path $PublishPath -Filter ".env*" -File
+    $envBackups = @()
+    
+    foreach ($file in $envFiles) {
+        $backupFile = Join-Path $env:TEMP "$($file.Name).backup"
+        try {
+            Copy-Item $file.FullName $backupFile -Force
+            $envBackups += @{
+                Original = $file.FullName
+                Backup = $backupFile
+                Name = $file.Name
+            }
+            Write-Host "Backed up $($file.Name)" -ForegroundColor Green
+        } catch {
+            Write-Host "Could not backup $($file.Name): $_" -ForegroundColor Yellow
+        }
+    }
+    
+    # Delete all items except appsettings and .env files
     Get-ChildItem -Path $PublishPath -Recurse | ForEach-Object {
-        if ($_.Name -ne "appsettings.json") {
+        if (-not (($_.Name -like "appsettings*") -or ($_.Name -like ".env*"))) {
             try {
                 Remove-Item $_.FullName -Recurse -Force -ErrorAction Stop
             } catch {
@@ -45,18 +70,53 @@ if (Test-Path $PublishPath) {
         }
     }
     
-    # Restore appsettings.json if we backed it up
-    if ($appsettingsBackup -and (Test-Path $appsettingsBackup)) {
-        try {
-            Copy-Item $appsettingsBackup $appsettingsFile -Force
-            Remove-Item $appsettingsBackup -Force
-            Write-Host "Restored appsettings.json" -ForegroundColor Green
-        } catch {
-            Write-Host "Could not restore appsettings.json: $_" -ForegroundColor Yellow
+    # Restore all appsettings files if we backed them up
+    foreach ($backup in $appsettingsBackups) {
+        if (Test-Path $backup.Backup) {
+            try {
+                Copy-Item $backup.Backup $backup.Original -Force
+                Remove-Item $backup.Backup -Force
+                Write-Host "Restored $($backup.Name)" -ForegroundColor Green
+            } catch {
+                Write-Host "Could not restore $($backup.Name): $_" -ForegroundColor Yellow
+            }
         }
     }
     
-    Write-Host "Cleaned publish directory (preserved appsettings.json)" -ForegroundColor Green
+    # Restore all .env files if we backed them up
+    foreach ($backup in $envBackups) {
+        if (Test-Path $backup.Backup) {
+            try {
+                Copy-Item $backup.Backup $backup.Original -Force
+                Remove-Item $backup.Backup -Force
+                Write-Host "Restored $($backup.Name)" -ForegroundColor Green
+            } catch {
+                Write-Host "Could not restore $($backup.Name): $_" -ForegroundColor Yellow
+            }
+        }
+    }
+    
+    $appsettingsCount = $appsettingsFiles.Count
+    $envCount = $envFiles.Count
+    $totalPreserved = $appsettingsCount + $envCount
+    
+    $preservedText = @()
+    if ($appsettingsCount -gt 0) {
+        $appsettingsText = if ($appsettingsCount -eq 1) { "1 appsettings file" } else { "$appsettingsCount appsettings files" }
+        $preservedText += $appsettingsText
+    }
+    if ($envCount -gt 0) {
+        $envText = if ($envCount -eq 1) { "1 .env file" } else { "$envCount .env files" }
+        $preservedText += $envText
+    }
+    
+    $preservedMessage = if ($preservedText.Count -gt 0) { 
+        "preserved " + ($preservedText -join " and ") 
+    } else { 
+        "no special files to preserve" 
+    }
+    
+    Write-Host "Cleaned publish directory ($preservedMessage)" -ForegroundColor Green
 } else {
     Write-Host "Publish directory does not exist, will be created" -ForegroundColor Green
 }

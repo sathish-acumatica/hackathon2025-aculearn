@@ -3,8 +3,33 @@ using OnboardingBuddy.Services;
 using OnboardingBuddy.Models;
 using OnboardingBuddy.Data;
 using Microsoft.EntityFrameworkCore;
+using DotNetEnv;
+
+// Load .env file if it exists
+Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Load additional configuration files specified in environment variables
+var additionalConfigFiles = Environment.GetEnvironmentVariable("ADDITIONAL_CONFIG_FILES");
+if (!string.IsNullOrEmpty(additionalConfigFiles))
+{
+    var configFiles = additionalConfigFiles.Split(',', StringSplitOptions.RemoveEmptyEntries);
+    foreach (var configFile in configFiles)
+    {
+        var fileName = configFile.Trim();
+        Console.WriteLine($"Loading additional configuration file: {fileName}");
+        builder.Configuration.AddJsonFile(fileName, optional: true, reloadOnChange: true);
+    }
+}
+
+// Alternative: Load single config file
+var singleConfigFile = Environment.GetEnvironmentVariable("ADDITIONAL_CONFIG_FILE");
+if (!string.IsNullOrEmpty(singleConfigFile))
+{
+    Console.WriteLine($"Loading additional configuration file: {singleConfigFile}");
+    builder.Configuration.AddJsonFile(singleConfigFile, optional: true, reloadOnChange: true);
+}
 
 if (builder.Environment.IsDevelopment())
 {

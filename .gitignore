@@ -580,6 +580,12 @@ PublishProfiles/
 appsettings.local.json
 appsettings.*.local.json
 
+# Environment and sensitive configuration files
+!.env
+
+# All appsettings files to prevent secrets from being committed
+appsettings.*.json
+!appsettings.json
 # IIS publish output
 *.pubxml
 *.pubxml.user
