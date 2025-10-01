@@ -17,7 +17,7 @@
           <input type="checkbox" v-model="showActiveOnly" />
           <span>Active Only</span>
         </label>
-        <button @click="showCreateModal = true" class="btn-create">
+        <button @click="openCreateModal" class="btn-create">
           ➕ Add New Material
         </button>
       </div>
@@ -125,9 +125,31 @@
             </div>
 
             <div class="form-group">
-              <label for="content">Content</label>
-              <QuillEditor v-model:content="currentMaterial.content" :options="editorOptions" content-type="html"
+              <div class="content-label-row">
+                <label for="content">Content</label>
+                <div class="content-actions">
+                  <button type="button" class="btn-secondary" @click="openHtmlPasteModal" title="Paste raw HTML">📥 Paste HTML</button>
+                  <button type="button" class="btn-secondary" @click="toggleSourceEditor" :title="showSourceEditor ? 'Hide HTML source editor' : 'Show & edit HTML source'">{{ showSourceEditor ? '🔧 Hide Source' : '🧪 Edit Source' }}</button>
+                </div>
+              </div>
+              <QuillEditor ref="editorRef" v-model:content="currentMaterial.content" :options="editorOptions" content-type="html"
                 class="rich-editor" />
+              <p class="paste-hint">Paste formatted content directly (Word/HTML). Use "Paste HTML" for raw snippets.</p>
+              <div v-if="showSourceEditor" class="source-editor-wrapper">
+                <div class="source-editor-header">
+                  <span>HTML Source (sanitized on apply)</span>
+                  <div class="source-editor-actions">
+                    <button type="button" class="btn-outline-sm" @click="refreshSourceFromEditor" title="Reload from current editor">↻ Reload</button>
+                    <button type="button" class="btn-outline-sm" @click="applySourceHtml" :disabled="!sourceHtml.trim()" title="Apply HTML to editor">✅ Apply</button>
+                    <button type="button" class="btn-outline-sm" @click="toggleSourceEditor" title="Close source editor">✖</button>
+                  </div>
+                </div>
+                <textarea v-model="sourceHtml" class="source-textarea" spellcheck="false" placeholder="<p>Your HTML...</p>"></textarea>
+                <div class="source-meta-row">
+                  <span class="char-count">{{ sourceHtml.length }} chars</span>
+                  <span v-if="sourceApplyMessage" class="apply-msg">{{ sourceApplyMessage }}</span>
+                </div>
+              </div>
             </div>
 
             <div class="form-group">
@@ -212,6 +234,33 @@
         </form>
       </div>
     </div>
+    <!-- Raw HTML Paste Modal -->
+    <div v-if="showHtmlPasteModal" class="html-paste-modal-overlay" @click.self="cancelHtmlPaste">
+      <div class="html-paste-modal">
+        <div class="html-paste-header">
+          <h3>📥 Paste Raw HTML</h3>
+          <button type="button" class="btn-close" @click="cancelHtmlPaste" title="Close">×</button>
+        </div>
+        <div class="html-paste-body">
+          <p>Paste cleaned or exported HTML here. It will be sanitized before insertion.</p>
+          <textarea v-model="rawHtmlInput" placeholder="<div>Example...</div>"></textarea>
+          <div class="flex-row space-between" style="margin-top:6px;font-size:12px;">
+            <span>{{ rawHtmlInput.length }} / {{ MAX_HTML_PASTE_CHARS }}</span>
+            <span v-if="rawHtmlInput.length > MAX_HTML_PASTE_CHARS" style="color:#dc2626">Too large</span>
+          </div>
+          <div v-if="htmlPasteError" class="error-text">{{ htmlPasteError }}</div>
+        </div>
+        <div class="html-paste-footer">
+          <button type="button" class="btn-outline" @click="cancelHtmlPaste">Cancel</button>
+          <button type="button" class="btn-primary" :disabled="!rawHtmlInput.trim() || rawHtmlInput.length > MAX_HTML_PASTE_CHARS" @click="insertRawHtml">Insert</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Toast Notification -->
+  <div v-if="toast.show" :class="['admin-toast', `toast-${toast.type}`]">
+    {{ toast.message }}
   </div>
 </template>
 
@@ -220,6 +269,7 @@ import { ref, onMounted, computed } from 'vue'
 import { QuillEditor } from '@vueup/vue-quill'
 import '@vueup/vue-quill/dist/vue-quill.snow.css'
 import { buildApiUrl, debugPaths } from '../utils/pathUtils.js'
+import DOMPurify from 'dompurify'
 
 // Reactive data
 const materials = ref([])
@@ -239,6 +289,24 @@ const currentMaterial = ref({
   internalNotes: '',
   isActive: true,
   attachments: []
+})
+
+// Rich HTML paste support refs
+const editorRef = ref(null)
+const showHtmlPasteModal = ref(false)
+const rawHtmlInput = ref('')
+const htmlPasteError = ref('')
+const MAX_HTML_PASTE_CHARS = 50000
+// Source editor
+const showSourceEditor = ref(false)
+const sourceHtml = ref('')
+const sourceApplyMessage = ref('')
+
+// Toast notification system
+const toast = ref({
+  show: false,
+  message: '',
+  type: 'success' // 'success', 'error', 'warning', 'info'
 })
 
 // File handling
@@ -307,7 +375,41 @@ onMounted(() => {
   }
 
   loadMaterials()
+
+  // Attach enhanced paste handler once editor mounts
+  setTimeout(() => {
+    const quillEl = editorRef.value?.$el?.querySelector?.('.ql-editor')
+    if (quillEl) {
+      quillEl.addEventListener('paste', (e) => {
+        if (!e.clipboardData) return
+        const html = e.clipboardData.getData('text/html')
+        if (html) {
+          const cleaned = sanitizeHtml(html)
+          e.preventDefault()
+          const quill = editorRef.value?.getQuill?.()
+          if (quill) {
+            const range = quill.getSelection(true)
+            const index = range ? range.index : quill.getLength() - 1
+            quill.clipboard.dangerouslyPasteHTML(index, cleaned, 'user')
+            currentMaterial.value.content = quill.root.innerHTML
+          }
+        }
+      })
+    }
+  }, 300)
 })
+
+// Toast notification function
+function showToast(message, type = 'success') {
+  toast.value.message = message
+  toast.value.type = type
+  toast.value.show = true
+  
+  // Auto-hide after 3 seconds
+  setTimeout(() => {
+    toast.value.show = false
+  }, 3000)
+}
 
 async function loadMaterials() {
   loading.value = true
@@ -330,6 +432,11 @@ async function loadMaterials() {
 function editMaterial(material) {
   currentMaterial.value = { ...material }
   showEditModal.value = true
+  // If source editor is visible, sync it with the newly loaded material content
+  if (showSourceEditor.value) {
+    sourceHtml.value = currentMaterial.value.content || ''
+    sourceApplyMessage.value = ''
+  }
 }
 
 async function deleteMaterial(id) {
@@ -344,11 +451,15 @@ async function deleteMaterial(id) {
     })
 
     if (response.ok) {
+      // Show success toast
+      showToast('Training material deleted successfully!', 'success')
       materials.value = materials.value.filter(m => m.id !== id)
     } else {
+      showToast('Failed to delete training material. Please try again.', 'error')
       console.error('Failed to delete material:', response.status, response.statusText)
     }
   } catch (error) {
+    showToast('An error occurred while deleting the training material.', 'error')
     console.error('Error deleting material:', error)
   }
 }
@@ -407,6 +518,10 @@ async function saveMaterial() {
   saving.value = true
 
   try {
+    // Sanitize content before persisting, since we later render with v-html
+    if (currentMaterial.value.content) {
+      currentMaterial.value.content = sanitizeHtml(currentMaterial.value.content)
+    }
     // Check if we have files to upload
     const hasFiles = selectedFiles.value.length > 0
 
@@ -446,6 +561,9 @@ async function saveMaterial() {
         const savedMaterial = await response.json()
         console.log('Material saved with attachments:', savedMaterial)
         
+        // Show success toast
+        showToast(isEditMode.value ? `Training material "${savedMaterial.title}" updated successfully!` : `Training material "${savedMaterial.title}" created successfully!`, 'success')
+        
         // Reload materials to get updated attachment info
         await loadMaterials()
         closeModal()
@@ -473,6 +591,9 @@ async function saveMaterial() {
 
       if (response.ok) {
         const savedMaterial = await response.json()
+
+        // Show success toast
+        showToast(showEditModal.value ? `Training material "${savedMaterial.title}" updated successfully!` : `Training material "${savedMaterial.title}" created successfully!`, 'success')
 
         if (showEditModal.value) {
           const index = materials.value.findIndex(m => m.id === savedMaterial.id)
@@ -508,6 +629,10 @@ function closeModal() {
     attachments: []
   }
   clearFileSelection()
+  // Reset source editor state to avoid showing stale previous content
+  showSourceEditor.value = false
+  sourceHtml.value = ''
+  sourceApplyMessage.value = ''
 }
 
 function toggleMaximize() {
@@ -522,6 +647,162 @@ function truncateContent(content, maxLength = 200) {
 
 function formatDate(dateString) {
   return new Date(dateString).toLocaleDateString()
+}
+
+// ---------- HTML Paste & Sanitization Helpers ----------
+function openHtmlPasteModal() {
+  rawHtmlInput.value = ''
+  htmlPasteError.value = ''
+  showHtmlPasteModal.value = true
+}
+
+function cancelHtmlPaste() {
+  showHtmlPasteModal.value = false
+  rawHtmlInput.value = ''
+  htmlPasteError.value = ''
+}
+
+function sanitizeHtml(html) {
+  let clean = DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    ALLOWED_ATTR: ['href','target','rel','src','alt','title','class','style','width','height','colspan','rowspan','align'],
+    ALLOWED_TAGS: [
+      'p','div','br','span','strong','em','u','s','blockquote','code','pre','ul','ol','li','h1','h2','h3','h4','h5','h6',
+      'table','thead','tbody','tr','th','td','img','a'
+    ]
+  })
+  clean = scrubWordArtifacts(clean)
+  return clean
+}
+
+function scrubWordArtifacts(html) {
+  if (!html) return ''
+  // Remove comments & MSO conditionals
+  html = html.replace(/<!--([\s\S]*?)-->/g, '')
+  html = html.replace(/<!\[if !supportLists\]>[\s\S]*?<!\[endif\]>/gi, '')
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(`<div id="__root">${html}</div>`, 'text/html')
+  const root = doc.getElementById('__root')
+  if (!root) return html
+  const blockTags = new Set(['P','DIV','H1','H2','H3','H4','H5','H6','LI','UL','OL','BLOCKQUOTE','PRE','TABLE','TR','TD','TH'])
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null)
+  const toRemove = []
+  while (walker.nextNode()) {
+    const el = walker.currentNode
+    const tag = el.tagName
+    if (['STYLE','SCRIPT','META','LINK','XML'].includes(tag) || /^(O:P|W:|V:)/i.test(tag)) { toRemove.push(el); continue }
+    if (el.hasAttribute && el.hasAttribute('class')) {
+      const filtered = el.getAttribute('class').split(/\s+/).filter(c => !/^Mso/.test(c))
+      if (filtered.length) {
+        el.setAttribute('class', filtered.join(' '))
+      } else {
+        el.removeAttribute('class')
+      }
+    }
+    if (el.hasAttribute && el.hasAttribute('style')) {
+      const style = el.getAttribute('style') || ''
+      let allowed = ''
+      if (blockTags.has(tag)) {
+        const align = style.match(/text-align\s*:\s*(left|right|center|justify)/i)
+        if (align) allowed += `text-align:${align[1].toLowerCase()};`
+      }
+      if (['IMG','TABLE','TD','TH'].includes(tag)) {
+        const w = style.match(/width\s*:\s*([0-9]+)(px|%)/i)
+        const h = style.match(/height\s*:\s*([0-9]+)(px|%)/i)
+        if (w) allowed += `width:${w[1]}${w[2]};`
+        if (h) allowed += `height:${h[1]}${h[2]};`
+      }
+      if (allowed) {
+        el.setAttribute('style', allowed)
+      } else {
+        el.removeAttribute('style')
+      }
+    }
+    if (tag === 'SPAN' && !el.attributes.length) {
+      el.replaceWith(doc.createTextNode(el.textContent))
+    }
+  }
+  toRemove.forEach(n => n.remove())
+  let output = root.innerHTML
+  output = output.replace(/(&nbsp;){2,}/g, '&nbsp; ')
+  output = output.replace(/\n{2,}/g, '\n')
+  return output
+}
+
+function insertRawHtml() {
+  htmlPasteError.value = ''
+  if (!rawHtmlInput.value.trim()) {
+    htmlPasteError.value = 'No HTML provided.'
+    return
+  }
+  if (rawHtmlInput.value.length > MAX_HTML_PASTE_CHARS) {
+    htmlPasteError.value = `HTML too large (> ${MAX_HTML_PASTE_CHARS} chars).`
+    return
+  }
+  const quill = editorRef.value?.getQuill?.()
+  if (!quill) {
+    htmlPasteError.value = 'Editor not ready.'
+    return
+  }
+  const clean = sanitizeHtml(rawHtmlInput.value)
+  quill.clipboard.dangerouslyPasteHTML(quill.getLength() - 1, clean, 'user')
+  currentMaterial.value.content = quill.root.innerHTML
+  showHtmlPasteModal.value = false
+  rawHtmlInput.value = ''
+}
+
+// -------- Source Editor Functions --------
+function toggleSourceEditor() {
+  sourceApplyMessage.value = ''
+  if (!showSourceEditor.value) {
+    // opening: load current sanitized content
+    sourceHtml.value = currentMaterial.value.content || ''
+  }
+  showSourceEditor.value = !showSourceEditor.value
+}
+
+function openCreateModal() {
+  // Prepare fresh material
+  currentMaterial.value = {
+    title: '',
+    category: '',
+    content: '',
+    internalNotes: '',
+    isActive: true,
+    attachments: []
+  }
+  showCreateModal.value = true
+  // If source editor currently visible from previous session, refresh it to blank
+  if (showSourceEditor.value) {
+    sourceHtml.value = ''
+    sourceApplyMessage.value = ''
+  }
+}
+
+function refreshSourceFromEditor() {
+  sourceApplyMessage.value = ''
+  sourceHtml.value = currentMaterial.value.content || ''
+}
+
+function applySourceHtml() {
+  sourceApplyMessage.value = ''
+  const html = sourceHtml.value
+  if (!html.trim()) {
+    sourceApplyMessage.value = 'Nothing to apply.'
+    return
+  }
+  const sanitized = sanitizeHtml(html)
+  const quill = editorRef.value?.getQuill?.()
+  if (quill) {
+    // Replace entire contents
+    quill.setContents([])
+    quill.clipboard.dangerouslyPasteHTML(0, sanitized, 'user')
+    currentMaterial.value.content = quill.root.innerHTML
+    sourceApplyMessage.value = 'Applied.'
+    // subtle auto-hide after a delay could be added
+  } else {
+    sourceApplyMessage.value = 'Editor not ready.'
+  }
 }
 </script>
 
@@ -979,6 +1260,38 @@ function formatDate(dateString) {
   cursor: not-allowed;
   transform: none;
 }
+
+/* Content actions */
+.content-label-row { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.content-actions { display:flex; gap:8px; }
+.btn-secondary { background:#e2e8f0; color:#374151; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; transition:background .2s; }
+.btn-secondary:hover { background:#cbd5e0; }
+.paste-hint { font-size:12px; color:#6b7280; margin-top:6px; }
+
+/* HTML Paste Modal */
+.html-paste-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; justify-content:center; align-items:center; z-index:1500; backdrop-filter:blur(4px); }
+.html-paste-modal { background:#ffffff; width:min(900px,95%); max-height:85vh; border-radius:16px; display:flex; flex-direction:column; box-shadow:0 10px 40px rgba(0,0,0,0.25); }
+.html-paste-header { padding:16px 20px; background:linear-gradient(135deg,#667eea 0%, #764ba2 100%); color:white; display:flex; justify-content:space-between; align-items:center; border-radius:16px 16px 0 0; }
+.html-paste-body { padding:18px 22px; overflow-y:auto; }
+.html-paste-body textarea { width:100%; min-height:300px; border:1px solid #d1d5db; border-radius:8px; padding:12px; font-family:ui-monospace, monospace; font-size:13px; line-height:1.4; resize:vertical; }
+.html-paste-footer { padding:14px 20px; border-top:1px solid #e5e7eb; display:flex; gap:12px; justify-content:flex-end; background:#f8fafc; border-radius:0 0 16px 16px; }
+.error-text { color:#dc2626; font-size:12px; margin-top:6px; }
+.btn-primary { background:linear-gradient(135deg,#667eea 0%, #764ba2 100%); color:white; border:none; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600; }
+.btn-primary:hover { opacity:.9; }
+.btn-outline { background:white; color:#374151; border:1px solid #d1d5db; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600; }
+.btn-outline:hover { background:#f3f4f6; }
+
+/* Source HTML Editor */
+.source-editor-wrapper { margin-top:14px; border:1px solid #d1d5db; border-radius:8px; background:#f9fafb; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+.source-editor-header { display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:600; color:#374151; }
+.source-editor-actions { display:flex; gap:6px; }
+.btn-outline-sm { background:white; border:1px solid #d1d5db; padding:4px 10px; font-size:11px; border-radius:6px; cursor:pointer; font-weight:600; color:#374151; }
+.btn-outline-sm:hover { background:#eef2f7; }
+.source-textarea { width:100%; min-height:180px; font-family:ui-monospace, monospace; font-size:12px; line-height:1.4; border:1px solid #cbd5e0; border-radius:6px; padding:8px 10px; background:white; resize:vertical; }
+.source-textarea:focus { outline:none; border-color:#667eea; box-shadow:0 0 0 2px rgba(102,126,234,0.25); }
+.source-meta-row { display:flex; justify-content:space-between; font-size:11px; color:#6b7280; }
+.apply-msg { color:#059669; }
+.char-count { font-variant-numeric: tabular-nums; }
 
 /* Responsive design */
 @media (max-width: 768px) {
@@ -1468,5 +1781,49 @@ function formatDate(dateString) {
 
 .download-link-small:hover {
   opacity: 1;
+}
+
+/* Admin Toast Notifications */
+.admin-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  color: white;
+  font-weight: 500;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+  animation: slideInAdmin 0.3s ease-out;
+  max-width: 400px;
+}
+
+.toast-success {
+  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+}
+
+.toast-error {
+  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+}
+
+.toast-warning {
+  background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+  color: #212529;
+}
+
+.toast-info {
+  background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+}
+
+@keyframes slideInAdmin {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 </style>

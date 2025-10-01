@@ -76,6 +76,7 @@ builder.Services.AddScoped<IAIService, AIService>();
 builder.Services.AddScoped<ITrainingMaterialService, TrainingMaterialService>();
 builder.Services.AddScoped<IFileUploadService, FileUploadService>();
 builder.Services.AddSingleton<ISessionService, SessionService>();
+builder.Services.AddSingleton<INotificationService, SignalRNotificationService>();
 builder.Services.AddScoped<IAzureKeyVaultService, AzureKeyVaultService>();
 builder.Services.AddHttpClient();
 

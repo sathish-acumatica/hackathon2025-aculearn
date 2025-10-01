@@ -25,11 +25,13 @@ public class TrainingMaterialService : ITrainingMaterialService
 {
     private readonly OnboardingDbContext _context;
     private readonly ILogger<TrainingMaterialService> _logger;
+    private readonly ISessionService _sessionService;
 
-    public TrainingMaterialService(OnboardingDbContext context, ILogger<TrainingMaterialService> logger)
+    public TrainingMaterialService(OnboardingDbContext context, ILogger<TrainingMaterialService> logger, ISessionService sessionService)
     {
         _context = context;
         _logger = logger;
+        _sessionService = sessionService;
     }
 
     public async Task<IEnumerable<TrainingMaterialResponse>> GetAllAsync()
@@ -113,6 +115,11 @@ public class TrainingMaterialService : ITrainingMaterialService
         await _context.SaveChangesAsync();
         
         _logger.LogInformation("Created training material: {Title}", material.Title);
+        await _sessionService.InvalidateAllTrainingContextsAsync();
+        
+        // Broadcast notification (disabled in SessionService)
+        var updateMessage = $"Training material '{material.Title}' has been created.";
+        await _sessionService.BroadcastTrainingUpdateToActiveSessionsAsync(updateMessage);
         
         return material;
     }
@@ -132,6 +139,11 @@ public class TrainingMaterialService : ITrainingMaterialService
         await _context.SaveChangesAsync();
         
         _logger.LogInformation("Updated training material: {Title}", material.Title);
+        await _sessionService.InvalidateAllTrainingContextsAsync();
+        
+        // Broadcast notification (disabled in SessionService)
+        var updateMessage = $"Training material '{material.Title}' has been updated.";
+        await _sessionService.BroadcastTrainingUpdateToActiveSessionsAsync(updateMessage);
         
         return material;
     }
@@ -183,6 +195,7 @@ public class TrainingMaterialService : ITrainingMaterialService
         }
 
         _logger.LogInformation("Created training material with attachments: {Title}", material.Title);
+        await _sessionService.InvalidateAllTrainingContextsAsync();
         return material;
     }
 
@@ -230,6 +243,7 @@ public class TrainingMaterialService : ITrainingMaterialService
         await _context.SaveChangesAsync();
         
         _logger.LogInformation("Updated training material with attachments: {Title}", material.Title);
+        await _sessionService.InvalidateAllTrainingContextsAsync();
         return material;
     }
 
@@ -246,6 +260,7 @@ public class TrainingMaterialService : ITrainingMaterialService
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Removed attachment {AttachmentId} from training material {MaterialId}", attachmentId, materialId);
+        await _sessionService.InvalidateAllTrainingContextsAsync();
         return true;
     }
 
@@ -254,10 +269,16 @@ public class TrainingMaterialService : ITrainingMaterialService
         var material = await _context.TrainingMaterials.FindAsync(id);
         if (material == null) return false;
 
+        var materialTitle = material.Title;
         _context.TrainingMaterials.Remove(material);
         await _context.SaveChangesAsync();
         
-        _logger.LogInformation("Deleted training material: {Title}", material.Title);
+        _logger.LogInformation("Deleted training material: {Title}", materialTitle);
+        await _sessionService.InvalidateAllTrainingContextsAsync();
+        
+        // Broadcast notification (disabled in SessionService)
+        var updateMessage = $"Training material '{materialTitle}' has been removed.";
+        await _sessionService.BroadcastTrainingUpdateToActiveSessionsAsync(updateMessage);
         
         return true;
     }

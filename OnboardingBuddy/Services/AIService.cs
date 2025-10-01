@@ -48,26 +48,13 @@ public class AIService : IAIService
                 return await GetFallbackResponseAsync(message);
             }
 
-            // Check if session has training context loaded
-            var hasTrainingContext = await _sessionService.HasTrainingContextAsync(sessionId);
+            // Always read fresh training materials from database - no caching
+            var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
+            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
+            var trainingContext = context;
             
-            string trainingContext;
-            if (!hasTrainingContext)
-            {
-                // First message in session - load training materials
-                var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
-                await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
-                trainingContext = context;
-                
-                _logger.LogInformation("Loaded training context for new session {SessionId} with {MaterialCount} materials", 
-                    sessionId, materials.Count);
-            }
-            else
-            {
-                // Use cached training context
-                trainingContext = await _sessionService.GetCachedTrainingContextAsync(sessionId) ?? "";
-                _logger.LogInformation("Using cached training context for session {SessionId}", sessionId);
-            }
+            _logger.LogInformation("Loaded fresh training context for session {SessionId} with {MaterialCount} materials from database", 
+                sessionId, materials.Count);
             
             // Get conversation history
             var conversationHistory = await _sessionService.GetConversationHistoryAsync(sessionId);
@@ -120,26 +107,13 @@ public class AIService : IAIService
                 return await GetFallbackResponseAsync(message);
             }
 
-            // Check if session has training context loaded
-            var hasTrainingContext = await _sessionService.HasTrainingContextAsync(sessionId);
+            // Always read fresh training materials from database - no caching
+            var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
+            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
+            var trainingContext = context;
             
-            string trainingContext;
-            if (!hasTrainingContext)
-            {
-                // First message in session - load training materials
-                var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
-                await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
-                trainingContext = context;
-                
-                _logger.LogInformation("Loaded training context for new session {SessionId} with {MaterialCount} materials", 
-                    sessionId, materials.Count);
-            }
-            else
-            {
-                // Use cached training context
-                trainingContext = await _sessionService.GetCachedTrainingContextAsync(sessionId) ?? "";
-                _logger.LogInformation("Using cached training context for session {SessionId}", sessionId);
-            }
+            _logger.LogInformation("Loaded fresh training context for file processing session {SessionId} with {MaterialCount} materials from database", 
+                sessionId, materials.Count);
             
             var fileContext = BuildFileContext(files ?? new List<FileUpload>());
             var enhancedContext = string.IsNullOrWhiteSpace(trainingContext) 
@@ -190,10 +164,24 @@ public class AIService : IAIService
                 return GetDefaultWelcomeMessage();
             }
 
-            // Use a simplified prompt to avoid content limits
-            var welcomePrompt = @"Generate a brief, friendly welcome message for a new employee. 
-                Ask about their role and provide a clear first step for their onboarding.
-                Keep it concise and professional.";
+            // Always read fresh training materials from database - no caching
+            var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, string.Empty, _sessionService);
+            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
+            var trainingContext = context;
+            
+            _logger.LogInformation("Loaded fresh training context for welcome generation in session {SessionId} with {MaterialCount} materials from database", 
+                sessionId, materials.Count);
+
+            // If no training materials available, fall back to hardcoded welcome
+            if (string.IsNullOrWhiteSpace(trainingContext))
+            {
+                _logger.LogInformation("No training materials available for session {SessionId}, using default welcome", sessionId);
+                return GetDefaultWelcomeMessage();
+            }
+
+            // Use training materials to generate welcome message
+            var systemPrompt = BuildSystemPrompt(trainingContext);
+            var welcomeDirective = "Generate a brief, friendly welcome message for a new employee using the available training materials. Ask about their role and provide relevant first steps.";
 
             object requestPayload;
             
@@ -202,15 +190,13 @@ public class AIService : IAIService
                 // Check if using Responses API
                 if (_config.ApiUrl.Contains("responses", StringComparison.OrdinalIgnoreCase))
                 {
-                    // OpenAI Responses API format
-                    var inputText = "You are AcuBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise.\n\nUser: " + welcomePrompt + "\nAssistant:";
-                    
                     requestPayload = new
                     {
                         model = _config.Model,
                         max_output_tokens = Math.Min(_config.MaxTokens, 500),
                         temperature = _config.Temperature,
-                        input = inputText
+                        instructions = systemPrompt,
+                        input = welcomeDirective
                     };
                 }
                 else
@@ -223,8 +209,8 @@ public class AIService : IAIService
                         temperature = _config.Temperature,
                         messages = new[]
                         {
-                            new { role = "system", content = "You are AcuBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise." },
-                            new { role = "user", content = welcomePrompt }
+                            new { role = "system", content = systemPrompt },
+                            new { role = "user", content = welcomeDirective }
                         }
                     };
                 }
@@ -237,16 +223,19 @@ public class AIService : IAIService
                     model = _config.Model,
                     max_tokens = Math.Min(_config.MaxTokens, 500),
                     temperature = _config.Temperature,
-                    system = "You are AcuBuddy, a helpful AI assistant for new employee onboarding. Be welcoming but concise.",
+                    system = systemPrompt,
                     messages = new[]
                     {
-                        new { role = "user", content = welcomePrompt }
+                        new { role = "user", content = welcomeDirective }
                     }
                 };
             }
 
             var response = await SendAIRequestAsync(requestPayload);
-            return ExtractResponseText(response);
+            var result = ExtractResponseText(response);
+            
+            _logger.LogInformation("Generated welcome message using training materials for session {SessionId}", sessionId);
+            return result;
         }
         catch (Exception ex)
         {
@@ -695,9 +684,23 @@ IMPORTANT RESPONSE FORMATTING RULES:
 - For line breaks, use <br> tags
 - Structure your response with clear headings using <h2> and <h3>
 - Keep paragraphs in <p> tags
-- Never use markdown syntax (no ## or ** or []()) - always use HTML
+- Never use markdown syntax (no ## or ** or []() or ```) - always use HTML
+- DO NOT wrap your response in code blocks or backticks
+- DO NOT use ```html or ``` anywhere in your response
 - Your entire response should be valid HTML that can be inserted directly into a web page
-- Make responses visually appealing with proper HTML structure and formatting";
+- Make responses visually appealing with proper HTML structure and formatting
+
+CRITICAL KNOWLEDGE RESTRICTIONS:
+- You MUST ONLY use information from the training materials provided in the context above
+- DO NOT access any external knowledge, web searches, or information outside of the training materials
+- If a user asks about something not covered in the training materials, politely explain that you can only help with topics covered in the provided onboarding materials
+- Never make up information or provide answers from your general knowledge base
+- Always base your responses strictly on the content from the training materials
+- If the training materials don't contain sufficient information to answer a question, say so explicitly
+- Examples of appropriate responses when information is not available:
+  - 'I don't have information about that topic in the current training materials. Please check with your manager or HR for details.'
+  - 'The training materials provided don't cover that specific question. You may want to consult the employee handbook or contact HR.'
+  - 'That information isn't included in the onboarding materials I have access to. Please reach out to your supervisor for guidance.'";
 
         return basePrompt + formattingInstructions;
     }
@@ -1024,6 +1027,7 @@ IMPORTANT RESPONSE FORMATTING RULES:
         try
         {
             using var document = JsonDocument.Parse(jsonResponse);
+            string content = "";
             
             // Handle OpenAI response format
             if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
@@ -1032,52 +1036,65 @@ IMPORTANT RESPONSE FORMATTING RULES:
                 if (_config.ApiUrl.Contains("responses", StringComparison.OrdinalIgnoreCase))
                 {
                     // OpenAI Responses API format
-                    var content = document.RootElement
+                    content = document.RootElement
                         .GetProperty("output")[0]
                         .GetProperty("content")[0]
                         .GetProperty("text")
-                        .GetString();
-                    
-                    return content ?? "I apologize, but I couldn't generate a proper response.";
+                        .GetString() ?? "I apologize, but I couldn't generate a proper response.";
                 }
                 else
                 {
                     // OpenAI Chat Completions API format
-                    var content = document.RootElement
+                    content = document.RootElement
                         .GetProperty("choices")[0]
                         .GetProperty("message")
                         .GetProperty("content")
-                        .GetString();
-                    
-                    return content ?? "I apologize, but I couldn't generate a proper response.";
+                        .GetString() ?? "I apologize, but I couldn't generate a proper response.";
                 }
             }
             // Handle Ollama response format (similar to OpenAI)
             else if (string.Equals(_config.AIService, "Ollama", StringComparison.OrdinalIgnoreCase))
             {
-                var content = document.RootElement
+                content = document.RootElement
                     .GetProperty("message")
                     .GetProperty("content")
-                    .GetString();
-                
-                return content ?? "I apologize, but I couldn't generate a proper response.";
+                    .GetString() ?? "I apologize, but I couldn't generate a proper response.";
             }
             // Handle Claude/Anthropic response format
             else
             {
-                var content = document.RootElement
+                content = document.RootElement
                     .GetProperty("content")[0]
                     .GetProperty("text")
-                    .GetString();
-                
-                return content ?? "I apologize, but I couldn't generate a proper response.";
+                    .GetString() ?? "I apologize, but I couldn't generate a proper response.";
             }
+            
+            // Clean up any markdown artifacts
+            return CleanMarkdownArtifacts(content);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error extracting response text from AI response");
             return "I encountered an issue processing the response. Please try again.";
         }
+    }
+
+    private string CleanMarkdownArtifacts(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return content;
+        
+        // Remove markdown code block markers
+        content = System.Text.RegularExpressions.Regex.Replace(content, @"```html\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        content = System.Text.RegularExpressions.Regex.Replace(content, @"```\s*$", "", System.Text.RegularExpressions.RegexOptions.Multiline);
+        content = System.Text.RegularExpressions.Regex.Replace(content, @"^```\s*", "", System.Text.RegularExpressions.RegexOptions.Multiline);
+        
+        // Remove any remaining triple backticks
+        content = content.Replace("```", "");
+        
+        // Trim whitespace
+        content = content.Trim();
+        
+        return content;
     }
 
     private string BuildFileContext(List<FileUpload> files)

@@ -15,7 +15,9 @@
       <div
         v-for="message in messages"
         :key="message.id"
-        :class="['message', message.isUser ? 'user-message' : 'assistant-message']"
+        :class="['message', 
+          message.isUser ? 'user-message' : 
+          message.isSystemNotification ? 'system-notification' : 'assistant-message']"
       >
         <div class="message-content">
           <div v-if="message.isUser" class="message-text">
@@ -126,6 +128,11 @@
         <div class="image-preview-caption">{{ imagePreview.alt }}</div>
       </div>
     </div>
+    
+    <!-- Toast Notification -->
+    <div v-if="toast.show" :class="['toast-notification', `toast-${toast.type}`]">
+      {{ toast.message }}
+    </div>
   </div>
 </template>
 
@@ -146,6 +153,13 @@ const isDragOver = ref(false)
 const selectedFiles = ref([])
 const messagesContainer = ref(null)
 const fileInput = ref(null)
+
+// Toast notification system
+const toast = ref({
+  show: false,
+  message: '',
+  type: 'info' // 'info', 'success', 'warning', 'error'
+})
 
 // Text-to-speech reactive reference
 const currentlyPlaying = textToSpeechService.getCurrentlyPlayingRef()
@@ -315,6 +329,30 @@ async function initializeSignalR() {
     messages.value.push(message)
     isLoading.value = false
     scrollToBottom()
+  })
+
+  connection.on('ReceiveSystemNotification', (notification) => {
+    // Handle system notifications (like training material updates)
+    if (notification.sessionId && notification.sessionId !== sessionId.value) {
+      // This notification is for a different session, ignore it
+      return
+    }
+    
+    const message = {
+      id: generateMessageId(),
+      text: notification.message || notification,
+      html: processMarkdownWithImages(notification.message || notification),
+      isUser: false,
+      isSystemNotification: true,
+      timestamp: new Date()
+    }
+    messages.value.push(message)
+    scrollToBottom()
+    
+    // Show a toast notification for training updates
+    if (notification.type === 'training_update' || notification.type === 'training_update_broadcast') {
+      showToast('Training materials have been updated', 'info')
+    }
   })
 
   connection.on('ConversationHistory', (history) => {
@@ -521,6 +559,17 @@ function formatTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function showToast(message, type = 'info') {
+  toast.value.message = message
+  toast.value.type = type
+  toast.value.show = true
+  
+  // Auto-hide after 3 seconds
+  setTimeout(() => {
+    toast.value.show = false
+  }, 3000)
+}
+
 function addErrorMessage(text) {
   const errorMessage = {
     id: generateMessageId(),
@@ -642,6 +691,21 @@ function setupDragAndDrop() {
 
 .assistant-message {
   justify-content: flex-start;
+}
+
+.system-notification {
+  justify-content: center;
+  margin: 10px 0;
+}
+
+.system-notification .message-content {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+  border: 1px solid #ffc107;
+  color: #856404;
+  text-align: center;
+  font-style: italic;
+  max-width: 90%;
+  font-size: 0.9em;
 }
 
 .message-content {
@@ -1184,6 +1248,49 @@ function setupDragAndDrop() {
   
   .message-footer {
     gap: 6px;
+  }
+}
+
+/* Toast Notification Styles */
+.toast-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  color: white;
+  font-weight: 500;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+  animation: slideIn 0.3s ease-out;
+}
+
+.toast-info {
+  background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+}
+
+.toast-success {
+  background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+}
+
+.toast-warning {
+  background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+  color: #212529;
+}
+
+.toast-error {
+  background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
   }
 }
 </style>

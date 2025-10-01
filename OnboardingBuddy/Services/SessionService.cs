@@ -13,16 +13,26 @@ public interface ISessionService
     
     // New methods for session-based training context
     Task LoadTrainingContextForSessionAsync(string sessionId, string trainingContext);
-    Task<string?> GetCachedTrainingContextAsync(string sessionId);
+
     Task AddConversationTurnAsync(string sessionId, string userMessage, string aiResponse);
     Task AddWelcomeMessageAsync(string sessionId, string welcomeMessage);
+    Task AddAssistantMessageAsync(string sessionId, string aiResponse, string turnType, Dictionary<string,string>? metadata = null);
     Task<List<string>> GetConversationHistoryAsync(string sessionId, int maxTurns = 10);
     Task<bool> HasTrainingContextAsync(string sessionId);
+    Task<bool> HasWelcomeMessageAsync(string sessionId);
+    Task<string?> GetExistingWelcomeMessageAsync(string sessionId);
     
     // Connection mapping for browser sessions
     Task MapConnectionToSessionAsync(string connectionId, string browserSessionId);
     Task<string?> GetSessionForConnectionAsync(string connectionId);
     Task RemoveConnectionMappingAsync(string connectionId);
+    // Invalidate cached training context for all active sessions
+    Task InvalidateAllTrainingContextsAsync();
+    
+    // Notification methods for training material updates
+    Task<List<string>> GetActiveSessionIdsAsync();
+    Task NotifySessionOfTrainingUpdateAsync(string sessionId, string updateMessage);
+    Task BroadcastTrainingUpdateToActiveSessionsAsync(string updateMessage);
 }
 
 public class SessionService : ISessionService
@@ -30,11 +40,13 @@ public class SessionService : ISessionService
     private readonly ConcurrentDictionary<string, ConversationSession> _sessions = new();
     private readonly ConcurrentDictionary<string, string> _connectionToSession = new(); // connectionId -> sessionId
     private readonly ILogger<SessionService> _logger;
+    private readonly INotificationService _notificationService;
     private const int SessionTimeoutMinutes = 60;
 
-    public SessionService(ILogger<SessionService> logger)
+    public SessionService(ILogger<SessionService> logger, INotificationService notificationService)
     {
         _logger = logger;
+        _notificationService = notificationService;
         
         // Start cleanup timer
         _ = Task.Run(CleanupExpiredSessions);
@@ -156,25 +168,18 @@ public class SessionService : ISessionService
     {
         if (_sessions.TryGetValue(sessionId, out var session))
         {
-            session.CachedTrainingContext = trainingContext;
+            // No longer caching training context in memory - always read from DB
             session.TrainingContextLoadedAt = DateTime.UtcNow;
             session.HasInitialTrainingContext = true;
             session.LastActivity = DateTime.UtcNow;
             
-            _logger.LogInformation("Loaded training context for session {SessionId} (size: {Size} chars)", 
-                sessionId, trainingContext?.Length ?? 0);
+            _logger.LogInformation("Training context marked as loaded for session {SessionId} (will read fresh from DB)", 
+                sessionId);
         }
         await Task.CompletedTask;
     }
 
-    public async Task<string?> GetCachedTrainingContextAsync(string sessionId)
-    {
-        if (_sessions.TryGetValue(sessionId, out var session))
-        {
-            return session.CachedTrainingContext;
-        }
-        return await Task.FromResult<string?>(null);
-    }
+
 
     public async Task AddConversationTurnAsync(string sessionId, string userMessage, string aiResponse)
     {
@@ -195,7 +200,8 @@ public class SessionService : ISessionService
             {
                 UserQuery = userMessage,
                 AIResponse = aiResponse,
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow,
+                TurnType = "conversation"
             });
             
             session.LastActivity = DateTime.UtcNow;
@@ -215,12 +221,97 @@ public class SessionService : ISessionService
             {
                 UserQuery = "", // Empty user query for welcome message
                 AIResponse = welcomeMessage,
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow,
+                TurnType = "welcome",
+                Metadata = new Dictionary<string,string>{{"welcome","true"}}
             });
             
             session.LastActivity = DateTime.UtcNow;
         }
         
+        await Task.CompletedTask;
+    }
+
+    public async Task AddAssistantMessageAsync(string sessionId, string aiResponse, string turnType, Dictionary<string,string>? metadata = null)
+    {
+        if (_sessions.TryGetValue(sessionId, out var session))
+        {
+            session.ConversationMessages.Add($"Assistant: {aiResponse}");
+            session.ConversationHistory.Add(new ConversationTurn
+            {
+                UserQuery = string.Empty,
+                AIResponse = aiResponse,
+                Timestamp = DateTime.UtcNow,
+                TurnType = turnType,
+                Metadata = metadata ?? new Dictionary<string,string>()
+            });
+            session.LastActivity = DateTime.UtcNow;
+        }
+        await Task.CompletedTask;
+    }
+
+    public async Task<bool> HasWelcomeMessageAsync(string sessionId)
+    {
+        if (_sessions.TryGetValue(sessionId, out var session))
+        {
+            return session.ConversationHistory.Any(t => t.TurnType == "welcome" || (t.Metadata != null && t.Metadata.ContainsKey("welcome")));
+        }
+        return await Task.FromResult(false);
+    }
+
+    public async Task<string?> GetExistingWelcomeMessageAsync(string sessionId)
+    {
+        if (_sessions.TryGetValue(sessionId, out var session))
+        {
+            var turn = session.ConversationHistory.FirstOrDefault(t => t.TurnType == "welcome" || (t.Metadata != null && t.Metadata.ContainsKey("welcome")));
+            return await Task.FromResult(turn?.AIResponse);
+        }
+        return await Task.FromResult<string?>(null);
+    }
+
+    public async Task InvalidateAllTrainingContextsAsync()
+    {
+        var count = 0;
+        foreach (var kvp in _sessions)
+        {
+            var session = kvp.Value;
+            // No longer caching - just reset training context flags to force fresh DB reads
+            session.HasInitialTrainingContext = false;
+            session.TrainingContextLoadedAt = null;
+            session.LoadedMaterials.Clear();
+            count++;
+        }
+        _logger.LogInformation("Invalidated training context flags for {SessionCount} active session(s) - will read fresh from DB", count);
+        await Task.CompletedTask;
+    }
+
+    public async Task<List<string>> GetActiveSessionIdsAsync()
+    {
+        var activeSessionIds = new List<string>();
+        var cutoff = DateTime.UtcNow.AddMinutes(-SessionTimeoutMinutes);
+        
+        foreach (var kvp in _sessions)
+        {
+            if (kvp.Value.LastActivity > cutoff)
+            {
+                activeSessionIds.Add(kvp.Key);
+            }
+        }
+        
+        return await Task.FromResult(activeSessionIds);
+    }
+
+    public async Task NotifySessionOfTrainingUpdateAsync(string sessionId, string updateMessage)
+    {
+        // Training material notifications disabled - only cache invalidation occurs
+        _logger.LogInformation("Training material update notification disabled for session {SessionId}", sessionId);
+        await Task.CompletedTask;
+    }
+
+    public async Task BroadcastTrainingUpdateToActiveSessionsAsync(string updateMessage)
+    {
+        // Training material notifications disabled - only cache invalidation occurs
+        _logger.LogInformation("Training material broadcast notification disabled");
         await Task.CompletedTask;
     }
 
@@ -295,8 +386,7 @@ public class ConversationSession
     public List<int> LoadedMaterials { get; set; } = new();
     public HashSet<string> CurrentTopics { get; set; } = new();
     
-    // New session-based training context
-    public string? CachedTrainingContext { get; set; }
+    // Session-based training context - NO CACHING, always read from DB
     public DateTime? TrainingContextLoadedAt { get; set; }
     public bool HasInitialTrainingContext { get; set; } = false;
     public List<string> ConversationMessages { get; set; } = new(); // For Claude conversation history
@@ -307,23 +397,15 @@ public class ConversationSession
     
     /// <summary>
     /// Determines if context should be refreshed for OpenAI Responses API
-    /// Only needed for context switches or long conversations
+    /// Since we don't cache, we always have fresh context from DB
     /// </summary>
     public bool ShouldRefreshContext()
     {
-        // Refresh context if:
-        // 1. Training context is stale (older than 30 minutes)
-        // 2. Conversation is very long (more than 20 turns)
-        // 3. No recent activity (more than 1 hour since last message)
+        // Since we always read fresh from DB, only refresh for:
+        // 1. Very long conversations (more than 20 turns)
+        // 2. No recent activity (more than 1 hour since last message)
         
         var now = DateTime.UtcNow;
-        
-        // Check if training context is stale
-        if (TrainingContextLoadedAt.HasValue && 
-            now.Subtract(TrainingContextLoadedAt.Value).TotalMinutes > 30)
-        {
-            return true;
-        }
         
         // Check if conversation is getting too long
         if (ConversationHistory.Count > 20)
@@ -348,4 +430,6 @@ public class ConversationTurn
     public string AIResponse { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
     public List<int> MaterialsUsed { get; set; } = new();
+    public string TurnType { get; set; } = "conversation"; // welcome, followup, conversation
+    public Dictionary<string,string> Metadata { get; set; } = new();
 }
