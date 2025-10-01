@@ -42,6 +42,8 @@ public class FileUploadService : IFileUploadService
         // Specialized formats
         ".epub", ".mobi", ".azw", ".fb2", ".djvu", ".cbr", ".cbz"
     };
+    private const long MaxFileSize = 2 * 1024 * 1024; // 2MB
+    private readonly string[] _allowedExtensions = { ".pdf", ".txt", ".doc", ".docx", ".png" };
 
     public FileUploadService(OnboardingDbContext context, ILogger<FileUploadService> logger)
     {
