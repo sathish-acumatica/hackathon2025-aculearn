@@ -20,7 +20,7 @@ public class FileUploadService : IFileUploadService
 {
     private readonly OnboardingDbContext _context;
     private readonly ILogger<FileUploadService> _logger;
-    private const long MaxFileSize = 50 * 1024 * 1024; // 50MB for multimedia files
+    private const long MaxFileSize = 2 * 1024 * 1024; // 2MB for multimedia files
     private readonly string[] _allowedExtensions = { 
         // Documents
         ".pdf", ".txt", ".doc", ".docx", ".rtf", ".odt", ".pages", ".tex", ".md", ".markdown",
@@ -42,8 +42,6 @@ public class FileUploadService : IFileUploadService
         // Specialized formats
         ".epub", ".mobi", ".azw", ".fb2", ".djvu", ".cbr", ".cbz"
     };
-    private const long MaxFileSize = 2 * 1024 * 1024; // 2MB
-    private readonly string[] _allowedExtensions = { ".pdf", ".txt", ".doc", ".docx", ".png" };
 
     public FileUploadService(OnboardingDbContext context, ILogger<FileUploadService> logger)
     {

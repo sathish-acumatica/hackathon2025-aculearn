@@ -14,6 +14,7 @@ public class ChatResponse
 
 public class AIConfiguration
 {
+    public string AIService { get; set; } = "Acumatica"; // "OpenAI" or "Acumatica"
     public string ApiUrl { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
     public string Model { get; set; } = "claude-3-haiku-20240307";

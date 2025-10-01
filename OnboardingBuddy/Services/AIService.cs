@@ -269,38 +269,68 @@ IMPORTANT RESPONSE FORMATTING RULES:
             return _runtimeApiKey;
         }
 
-        // Try to get from Azure Key Vault first
-        if (await _keyVaultService.IsConfiguredAsync())
+        // Check AIService configuration to determine key source
+        if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogInformation("Azure Key Vault is configured, attempting to retrieve API key...");
-            var keyVaultApiKey = await _keyVaultService.GetApiKeyAsync();
-            if (!string.IsNullOrWhiteSpace(keyVaultApiKey))
+            _logger.LogInformation("AIService set to OpenAI, using ApiKey from appsettings.json");
+            
+            // For OpenAI, use ApiKey from configuration directly
+            if (!string.IsNullOrWhiteSpace(_config.ApiKey))
             {
-                _runtimeApiKey = keyVaultApiKey;
-                _logger.LogInformation("Successfully retrieved API key from Azure Key Vault (length: {Length}, starts with: {Prefix})", 
+                _runtimeApiKey = _config.ApiKey;
+                _logger.LogInformation("Using OpenAI API key from configuration (length: {Length}, starts with: {Prefix})", 
                     _runtimeApiKey.Length, _runtimeApiKey.Substring(0, Math.Min(8, _runtimeApiKey.Length)));
                 return _runtimeApiKey;
             }
             else
             {
-                _logger.LogWarning("Azure Key Vault returned null or empty API key");
+                _logger.LogError("AIService is set to OpenAI but no ApiKey found in appsettings.json");
+                return string.Empty;
+            }
+        }
+        else if (string.Equals(_config.AIService, "Acumatica", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation("AIService set to Acumatica, checking Azure Key Vault or configuration fallback");
+            
+            // For Acumatica, try Azure Key Vault first if ApiKey is empty
+            if (string.IsNullOrWhiteSpace(_config.ApiKey))
+            {
+                if (await _keyVaultService.IsConfiguredAsync())
+                {
+                    _logger.LogInformation("ApiKey is empty and Azure Key Vault is configured, attempting to retrieve API key...");
+                    var keyVaultApiKey = await _keyVaultService.GetApiKeyAsync();
+                    if (!string.IsNullOrWhiteSpace(keyVaultApiKey))
+                    {
+                        _runtimeApiKey = keyVaultApiKey;
+                        _logger.LogInformation("Successfully retrieved API key from Azure Key Vault (length: {Length}, starts with: {Prefix})", 
+                            _runtimeApiKey.Length, _runtimeApiKey.Substring(0, Math.Min(8, _runtimeApiKey.Length)));
+                        return _runtimeApiKey;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Azure Key Vault returned null or empty API key");
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("ApiKey is empty and Azure Key Vault is not configured");
+                }
+            }
+            else
+            {
+                // If ApiKey is provided in config, use it directly
+                _runtimeApiKey = _config.ApiKey;
+                _logger.LogInformation("Using Acumatica API key from configuration (length: {Length}, starts with: {Prefix})", 
+                    _runtimeApiKey.Length, _runtimeApiKey.Substring(0, Math.Min(8, _runtimeApiKey.Length)));
+                return _runtimeApiKey;
             }
         }
         else
         {
-            _logger.LogInformation("Azure Key Vault is not configured, checking configuration fallback...");
+            _logger.LogWarning("Unknown AIService value: {AIService}. Expected 'OpenAI' or 'Acumatica'", _config.AIService);
         }
 
-        // Fallback to configuration
-        if (!string.IsNullOrWhiteSpace(_config.ApiKey))
-        {
-            _runtimeApiKey = _config.ApiKey;
-            _logger.LogInformation("Using API key from configuration (length: {Length}, starts with: {Prefix})", 
-                _runtimeApiKey.Length, _runtimeApiKey.Substring(0, Math.Min(8, _runtimeApiKey.Length)));
-            return _runtimeApiKey;
-        }
-
-        _logger.LogError("No API key available from Azure Key Vault or configuration");
+        _logger.LogError("No API key available from any configured source");
         return string.Empty;
     }
 
