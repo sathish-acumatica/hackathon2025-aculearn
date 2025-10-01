@@ -72,10 +72,18 @@ public class AIService : IAIService
             // Get conversation history
             var conversationHistory = await _sessionService.GetConversationHistoryAsync(sessionId);
             
-            var requestPayload = CreateRequestPayloadWithHistory(message, trainingContext, conversationHistory);
+            var requestPayload = await CreateRequestPayloadWithHistory(message, trainingContext, conversationHistory, sessionId);
             var response = await SendAIRequestAsync(requestPayload);
             
             var result = ExtractResponseText(response);
+            
+            // Store OpenAI conversation/response IDs if using Responses API stateful mode
+            if (string.Equals(_config.AIService, "OpenAI", StringComparison.OrdinalIgnoreCase) && 
+                _config.ApiUrl.Contains("responses", StringComparison.OrdinalIgnoreCase) && 
+                _config.UseResponsesApiStatefulMode)
+            {
+                await StoreOpenAIResponseIds(response, sessionId);
+            }
             
             // Store the conversation turn
             await _sessionService.AddConversationTurnAsync(sessionId, message, result);
@@ -352,7 +360,7 @@ public class AIService : IAIService
         return contentType?.StartsWith("image/") == true;
     }
 
-    private object CreateRequestPayloadWithHistory(string message, string context, List<string> conversationHistory)
+    private async Task<object> CreateRequestPayloadWithHistory(string message, string context, List<string> conversationHistory, string sessionId)
     {
         var systemPrompt = BuildSystemPrompt(context);
         
@@ -390,33 +398,44 @@ public class AIService : IAIService
             // Check if using Responses API
             if (_config.ApiUrl.Contains("responses", StringComparison.OrdinalIgnoreCase))
             {
-                // OpenAI Responses API format - flatten to single input string
-                var inputText = systemPrompt;
-                
-                // Add conversation history
-                for (int i = 0; i < conversationHistory.Count; i += 2)
+                // Check if stateful mode is enabled
+                if (_config.UseResponsesApiStatefulMode)
                 {
-                    if (i + 1 < conversationHistory.Count)
-                    {
-                        var userMsg = conversationHistory[i].StartsWith("Human: ") ? 
-                            conversationHistory[i].Substring(7) : conversationHistory[i];
-                        var assistantMsg = conversationHistory[i + 1].StartsWith("Assistant: ") ? 
-                            conversationHistory[i + 1].Substring(11) : conversationHistory[i + 1];
-                            
-                        inputText += $"\n\nUser: {userMsg}\nAssistant: {assistantMsg}";
-                    }
+                    // OpenAI Responses API stateful format with full features
+                    var session = await _sessionService.GetOrCreateSessionAsync(sessionId);
+                    return await BuildFullResponsesApiPayload(message, systemPrompt, session);
                 }
-                
-                // Add current message
-                inputText += $"\n\nUser: {message}\nAssistant:";
-                
-                return new
+                else
                 {
-                    model = _config.Model,
-                    max_output_tokens = _config.MaxTokens,
-                    temperature = _config.Temperature,
-                    input = inputText
-                };
+                    // OpenAI Responses API format - flatten to single input string (legacy mode)
+                    var inputText = systemPrompt;
+                    
+                    // Add conversation history
+                    for (int i = 0; i < conversationHistory.Count; i += 2)
+                    {
+                        if (i + 1 < conversationHistory.Count)
+                        {
+                            var userMsg = conversationHistory[i].StartsWith("Human: ") ? 
+                                conversationHistory[i].Substring(7) : conversationHistory[i];
+                            var assistantMsg = conversationHistory[i + 1].StartsWith("Assistant: ") ? 
+                                conversationHistory[i + 1].Substring(11) : conversationHistory[i + 1];
+                                
+                            inputText += $"\n\nUser: {userMsg}\nAssistant: {assistantMsg}";
+                        }
+                    }
+                    
+                    // Add current message
+                    inputText += $"\n\nUser: {message}\nAssistant:";
+                    
+                    return new
+                    {
+                        model = _config.Model,
+                        max_output_tokens = _config.MaxTokens,
+                        temperature = _config.Temperature,
+                        input = inputText,
+                        store = _config.StoreConversations
+                    };
+                }
             }
             else
             {
@@ -442,15 +461,62 @@ public class AIService : IAIService
         }
         else
         {
-            // Claude/Anthropic format
-            return new
+            // Claude/Anthropic format with enhanced features
+            var payload = new Dictionary<string, object>
             {
-                model = _config.Model,
-                max_tokens = _config.MaxTokens,
-                temperature = _config.Temperature,
-                system = systemPrompt,
-                messages = messages.ToArray()
+                ["model"] = _config.Model,
+                ["max_tokens"] = _config.MaxTokens,
+                ["temperature"] = _config.Temperature,
+                ["system"] = systemPrompt,
+                ["messages"] = messages.ToArray()
             };
+
+            // Add advanced Anthropic features (respect extended thinking constraints)
+            if (_config.TopP.HasValue)
+            {
+                // When thinking is enabled Anthropic only allows 0.95 <= top_p <= 1.0
+                var topP = _config.TopP.Value;
+                if (_config.ExtendedThinking?.Enabled == true)
+                {
+                    if (topP < 0.95) topP = 0.95;
+                    if (topP > 1.0) topP = 1.0;
+                }
+                payload["top_p"] = topP;
+            }
+            
+            // top_k must be omitted when extended thinking is enabled per Anthropic docs
+            if (_config.TopK.HasValue && _config.ExtendedThinking?.Enabled != true)
+                payload["top_k"] = _config.TopK.Value;
+                
+            if (_config.StopSequences?.Any() == true)
+                payload["stop_sequences"] = _config.StopSequences.ToArray();
+                
+            if (_config.EnableStreaming)
+                payload["stream"] = true;
+                
+            // Add tools if configured
+            if (_config.Tools?.Any() == true)
+            {
+                var tools = _config.Tools.Select(tool => new Dictionary<string, object>
+                {
+                    ["name"] = tool.Name,
+                    ["type"] = tool.Type
+                }).ToArray();
+                
+                payload["tools"] = tools;
+                payload["tool_choice"] = new { type = _config.ToolChoice };
+            }
+            
+            // Add extended thinking
+            if (_config.ExtendedThinking?.Enabled == true)
+            {
+                payload["thinking"] = new { 
+                    type = "enabled",
+                    budget_tokens = _config.ExtendedThinking.BudgetTokens ?? 8000
+                };
+            }
+
+            return payload;
         }
     }
 
@@ -552,15 +618,60 @@ public class AIService : IAIService
         }
         else
         {
-            // Claude/Anthropic format
-            return new
+            // Claude/Anthropic format with enhanced features
+            var payload = new Dictionary<string, object>
             {
-                model = _config.Model,
-                max_tokens = _config.MaxTokens,
-                temperature = _config.Temperature,
-                system = systemPrompt,
-                messages = messages.ToArray()
+                ["model"] = _config.Model,
+                ["max_tokens"] = _config.MaxTokens,
+                ["temperature"] = _config.Temperature,
+                ["system"] = systemPrompt,
+                ["messages"] = messages.ToArray()
             };
+
+            // Add advanced Anthropic features (respect extended thinking constraints)
+            if (_config.TopP.HasValue)
+            {
+                var topP = _config.TopP.Value;
+                if (_config.ExtendedThinking?.Enabled == true)
+                {
+                    if (topP < 0.95) topP = 0.95;
+                    if (topP > 1.0) topP = 1.0;
+                }
+                payload["top_p"] = topP;
+            }
+            
+            if (_config.TopK.HasValue && _config.ExtendedThinking?.Enabled != true)
+                payload["top_k"] = _config.TopK.Value;
+                
+            if (_config.StopSequences?.Any() == true)
+                payload["stop_sequences"] = _config.StopSequences.ToArray();
+                
+            if (_config.EnableStreaming)
+                payload["stream"] = true;
+                
+            // Add tools if configured
+            if (_config.Tools?.Any() == true)
+            {
+                var tools = _config.Tools.Select(tool => new Dictionary<string, object>
+                {
+                    ["name"] = tool.Name,
+                    ["type"] = tool.Type
+                }).ToArray();
+                
+                payload["tools"] = tools;
+                payload["tool_choice"] = new { type = _config.ToolChoice };
+            }
+            
+            // Add extended thinking
+            if (_config.ExtendedThinking?.Enabled == true)
+            {
+                payload["thinking"] = new { 
+                    type = "enabled",
+                    budget_tokens = _config.ExtendedThinking.BudgetTokens ?? 8000
+                };
+            }
+
+            return payload;
         }
     }
 
@@ -589,6 +700,160 @@ IMPORTANT RESPONSE FORMATTING RULES:
 - Make responses visually appealing with proper HTML structure and formatting";
 
         return basePrompt + formattingInstructions;
+    }
+
+    private async Task StoreOpenAIResponseIds(string jsonResponse, string sessionId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(jsonResponse);
+            var root = document.RootElement;
+            
+            var session = await _sessionService.GetOrCreateSessionAsync(sessionId);
+            
+            // Extract response ID
+            if (root.TryGetProperty("id", out var responseIdProperty))
+            {
+                session.LastOpenAIResponseId = responseIdProperty.GetString();
+                _logger.LogInformation("Stored OpenAI response ID {ResponseId} for session {SessionId}", 
+                    session.LastOpenAIResponseId, sessionId);
+            }
+            
+            // Extract conversation ID if present
+            if (root.TryGetProperty("conversation", out var conversationProperty) && 
+                conversationProperty.TryGetProperty("id", out var conversationIdProperty))
+            {
+                session.OpenAIConversationId = conversationIdProperty.GetString();
+                _logger.LogInformation("Stored OpenAI conversation ID {ConversationId} for session {SessionId}", 
+                    session.OpenAIConversationId, sessionId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to extract OpenAI response/conversation IDs from response");
+        }
+    }
+
+    private async Task<object> BuildFullResponsesApiPayload(string message, string systemPrompt, ConversationSession session)
+    {
+        var payload = new Dictionary<string, object>
+        {
+            ["model"] = _config.Model,
+            ["max_output_tokens"] = _config.MaxTokens,
+            ["temperature"] = _config.Temperature,
+            ["store"] = _config.StoreConversations
+        };
+
+        // Input - support for simple string or complex array
+        payload["input"] = message;
+
+        // Conversation state management - OPTIMIZED for stateful API
+        if (!string.IsNullOrEmpty(session.OpenAIConversationId))
+        {
+            // Subsequent messages - conversation ID maintains all context
+            // NO need to send training data again!
+            payload["conversation"] = session.OpenAIConversationId;
+        }
+        else if (!string.IsNullOrEmpty(session.LastOpenAIResponseId))
+        {
+            // Chain from previous response - context is maintained
+            // NO need to send full training data again!
+            payload["previous_response_id"] = session.LastOpenAIResponseId;
+            
+            // Only send instructions if this is a context switch or new topic
+            // For normal conversation flow, previous context is preserved
+            if (session.ShouldRefreshContext())
+            {
+                payload["instructions"] = "Continue helping with onboarding questions using previous context.";
+            }
+        }
+        else
+        {
+            // First message ONLY (no conversation / previous response state):
+            // Use dedicated 'instructions' field for system / training context so that
+            // 'input' remains purely the latest user message. This avoids blending
+            // persona + user content and aligns with OpenAI Responses API best practices.
+            payload["instructions"] = systemPrompt;
+            payload["input"] = message; // keep user content clean
+        }
+
+        // Advanced parameters
+        if (_config.BackgroundProcessing)
+            payload["background"] = true;
+
+        if (_config.MaxToolCalls.HasValue)
+            payload["max_tool_calls"] = _config.MaxToolCalls.Value;
+
+        if (!_config.ParallelToolCalls)
+            payload["parallel_tool_calls"] = false;
+
+        // Generate session-based safety identifier for user tracking and abuse prevention
+        var sessionHash = GenerateSessionHash(session.SessionId);
+        payload["safety_identifier"] = $"acubuddy_session_{sessionHash}";
+
+        if (_config.ServiceTier != "auto")
+            payload["service_tier"] = _config.ServiceTier;
+
+        if (_config.Truncation != "disabled")
+            payload["truncation"] = _config.Truncation;
+
+        if (_config.TopP.HasValue)
+            payload["top_p"] = _config.TopP.Value;
+
+        if (_config.TopLogprobs.HasValue)
+            payload["top_logprobs"] = _config.TopLogprobs.Value;
+
+        // Built-in tools
+        if (_config.BuiltInTools.Any())
+        {
+            var tools = _config.BuiltInTools.Select(tool => new { type = tool }).ToArray();
+            payload["tools"] = tools;
+            payload["tool_choice"] = "auto";
+        }
+
+        // Response includes
+        if (_config.ResponseIncludes.Any())
+        {
+            payload["include"] = _config.ResponseIncludes.ToArray();
+        }
+
+        // Metadata
+        if (_config.Metadata.Any())
+        {
+            payload["metadata"] = _config.Metadata;
+        }
+
+        // Structured output
+        if (_config.UseStructuredOutput && !string.IsNullOrEmpty(_config.JsonSchema))
+        {
+            payload["text"] = new
+            {
+                format = new
+                {
+                    type = "json_schema",
+                    json_schema = new
+                    {
+                        name = "response_schema",
+                        schema = JsonSerializer.Deserialize<object>(_config.JsonSchema)
+                    }
+                }
+            };
+        }
+
+        return payload;
+    }
+
+    private string GenerateSessionHash(string sessionId)
+    {
+        // Generate a SHA256 hash of the session ID for privacy-preserving user identification
+        // This allows OpenAI to track usage patterns per user while protecting actual session IDs
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hashBytes = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(sessionId));
+        
+        // Take first 8 bytes and convert to hex for a shorter, privacy-preserving identifier
+        var shortHash = Convert.ToHexString(hashBytes).Substring(0, 16).ToLowerInvariant();
+        
+        return shortHash;
     }
 
     private async Task<string> GetApiKeyAsync()
@@ -714,8 +979,32 @@ IMPORTANT RESPONSE FORMATTING RULES:
             _httpClient.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", apiKey);
             _httpClient.DefaultRequestHeaders.Add("api-version", _config.ApiVersion);
             
-            _logger.LogInformation("Making AI API request with access token: {HasToken}, subscription key length: {KeyLength}", 
-                !string.IsNullOrWhiteSpace(accessToken), apiKey.Length);
+            // Add Anthropic-specific headers
+            _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+            
+            // Add beta features header if using advanced tools
+            if (_config.Tools?.Any() == true)
+            {
+                var betaFeatures = new List<string>();
+                
+                // Check for specific tool types that require beta
+                foreach (var tool in _config.Tools)
+                {
+                    if (tool.Type.Contains("web_search") || tool.Type.Contains("code_execution"))
+                    {
+                        betaFeatures.Add("tools-2024-05-16");
+                        break;
+                    }
+                }
+                
+                if (betaFeatures.Any())
+                {
+                    _httpClient.DefaultRequestHeaders.Add("anthropic-beta", string.Join(",", betaFeatures));
+                }
+            }
+            
+            _logger.LogInformation("Making AI API request with access token: {HasToken}, subscription key length: {KeyLength}, tools enabled: {HasTools}", 
+                !string.IsNullOrWhiteSpace(accessToken), apiKey.Length, _config.Tools?.Any() == true);
         }
 
         var response = await _httpClient.PostAsync(_config.ApiUrl, content);

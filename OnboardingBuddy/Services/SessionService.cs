@@ -300,6 +300,46 @@ public class ConversationSession
     public DateTime? TrainingContextLoadedAt { get; set; }
     public bool HasInitialTrainingContext { get; set; } = false;
     public List<string> ConversationMessages { get; set; } = new(); // For Claude conversation history
+    
+    // OpenAI Responses API stateful support
+    public string? OpenAIConversationId { get; set; }
+    public string? LastOpenAIResponseId { get; set; }
+    
+    /// <summary>
+    /// Determines if context should be refreshed for OpenAI Responses API
+    /// Only needed for context switches or long conversations
+    /// </summary>
+    public bool ShouldRefreshContext()
+    {
+        // Refresh context if:
+        // 1. Training context is stale (older than 30 minutes)
+        // 2. Conversation is very long (more than 20 turns)
+        // 3. No recent activity (more than 1 hour since last message)
+        
+        var now = DateTime.UtcNow;
+        
+        // Check if training context is stale
+        if (TrainingContextLoadedAt.HasValue && 
+            now.Subtract(TrainingContextLoadedAt.Value).TotalMinutes > 30)
+        {
+            return true;
+        }
+        
+        // Check if conversation is getting too long
+        if (ConversationHistory.Count > 20)
+        {
+            return true;
+        }
+        
+        // Check if there's been a long gap in conversation
+        if (ConversationHistory.Any() &&
+            now.Subtract(ConversationHistory.Last().Timestamp).TotalHours > 1)
+        {
+            return true;
+        }
+        
+        return false;
+    }
 }
 
 public class ConversationTurn
