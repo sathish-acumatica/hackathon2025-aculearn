@@ -31,7 +31,28 @@
             </div>
           </div>
           <div v-else-if="!message.isUser" class="message-text" v-html="message.html || message.text"></div>
-          <div class="message-time">{{ formatTime(message.timestamp) }}</div>
+          
+          <!-- Message footer with timestamp and TTS controls -->
+          <div class="message-footer">
+            <div class="message-time">{{ formatTime(message.timestamp) }}</div>
+            
+            <!-- Text-to-speech controls for assistant messages -->
+            <div v-if="!message.isUser" class="tts-controls">
+              <span v-if="textToSpeechService.getAudioCache(message.id)?.error" class="tts-error">
+                {{ textToSpeechService.getAudioCache(message.id).error }}
+              </span>
+              <button
+                @click="textToSpeechService.toggleAudio(message.id, message.text)"
+                :disabled="textToSpeechService.getAudioCache(message.id)?.isLoading"
+                class="tts-button"
+                :title="currentlyPlaying === message.id ? 'Pause audio' : 'Play audio'"
+              >
+                <span v-if="textToSpeechService.getAudioCache(message.id)?.isLoading" class="tts-loading">🔄</span>
+                <span v-else-if="currentlyPlaying === message.id" class="tts-pause">⏸️</span>
+                <span v-else class="tts-play">🔊</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       
@@ -115,6 +136,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { buildSignalRUrl, buildApiUrl, debugPaths } from '../utils/pathUtils.js'
 import { getBrowserSessionId, keepSessionAlive, getSessionInfo } from '../utils/sessionUtils.js'
+import textToSpeechService from '../services/TextToSpeechService.js'
 
 // Reactive data
 const messages = ref([])
@@ -124,6 +146,9 @@ const isDragOver = ref(false)
 const selectedFiles = ref([])
 const messagesContainer = ref(null)
 const fileInput = ref(null)
+
+// Text-to-speech reactive reference
+const currentlyPlaying = textToSpeechService.getCurrentlyPlayingRef()
 
 // SignalR connection
 let connection = null
@@ -243,6 +268,9 @@ function closeImagePreview() {
   imagePreview.value.isOpen = false
 }
 
+// Expose textToSpeechService to template for direct access
+// Note: In Vue 3 composition API, imported objects are automatically available in template
+
 onMounted(() => {
   // Debug paths in development
   if (import.meta.env.DEV) {
@@ -259,6 +287,9 @@ onMounted(() => {
 // Cleanup on unmount
 onUnmounted(() => {
   document.removeEventListener('click', handleImageClick)
+  
+  // Clean up text-to-speech resources
+  textToSpeechService.cleanup()
 })
 
 function generateSessionId() {
@@ -1042,6 +1073,78 @@ function setupDragAndDrop() {
   max-width: 80%;
 }
 
+/* Message footer layout */
+.message-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 8px;
+  gap: 10px;
+  width: 100%;
+}
+
+/* Text-to-speech styles */
+.tts-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tts-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 50%;
+  padding: 6px;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+.tts-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.tts-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.tts-loading {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.tts-play, .tts-pause {
+  font-size: 16px;
+}
+
+.tts-error {
+  color: #ff4757;
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(255, 71, 87, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 71, 87, 0.3);
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Responsive image styles */
 @media (max-width: 768px) {
   .assistant-message .message-text .chat-image {
@@ -1072,5 +1175,15 @@ function setupDragAndDrop() {
 
 .session-info-dev small {
   font-size: 11px;
+  
+  .tts-button {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+  }
+  
+  .message-footer {
+    gap: 6px;
+  }
 }
 </style>

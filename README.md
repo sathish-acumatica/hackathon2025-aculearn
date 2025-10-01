@@ -6,6 +6,9 @@ Fill it out with the following:
 
 ```
 {
+  "ConnectionStrings": {
+    "DefaultConnection": "server={server};Database=OnboardingBuddy;integrated security=true;TrustServerCertificate=true;"
+  },
   "AIConfiguration": {
     "ApiKey": "{INSERT YOUR AI API KEY HERE}",
     "AzureKeyVault": {
