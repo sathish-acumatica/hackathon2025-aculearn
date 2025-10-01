@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace OnboardingBuddy.Models
 {
@@ -8,9 +9,11 @@ namespace OnboardingBuddy.Models
         public int Id { get; set; }
         
         public int TrainingMaterialId { get; set; }
+        [JsonIgnore]
         public TrainingMaterial TrainingMaterial { get; set; } = null!;
         
         public int FileUploadId { get; set; }
+        [JsonIgnore]
         public FileUpload FileUpload { get; set; } = null!;
         
         public DateTime AttachedAt { get; set; } = DateTime.UtcNow;

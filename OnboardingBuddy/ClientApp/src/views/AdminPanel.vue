@@ -67,17 +67,28 @@
               <strong>📝 Notes:</strong> {{ material.internalNotes }}
             </div>
 
-            <div v-if="material.attachments?.length" class="attachments-info">
-              <strong>📎 Attachments:</strong> 
-              <span class="attachment-count">{{ material.attachments.length }} file(s)</span>
-              <div class="attachment-list">
-                <span v-for="attachment in material.attachments" :key="attachment.id" class="attachment-item-card">
-                  <span class="attachment-name">{{ attachment.originalFileName }}</span>
+            <div v-if="material.attachments?.length" class="attachments-section-card">
+              <div class="attachments-header">
+                <strong>📎 Attachments ({{ material.attachments.length }})</strong>
+              </div>
+              <div class="attachment-list-card">
+                <div v-for="attachment in material.attachments" :key="attachment.id" class="attachment-item-display">
+                  <div class="attachment-info-display">
+                    <span class="attachment-icon">📄</span>
+                    <div class="attachment-details">
+                      <span class="attachment-name-display">{{ attachment.originalFileName }}</span>
+                      <span v-if="attachment.fileSizeBytes" class="attachment-size-display">
+                        ({{ formatFileSize(attachment.fileSizeBytes) }})
+                      </span>
+                    </div>
+                  </div>
                   <a :href="buildApiUrl(`api/fileupload/${attachment.id}/download`)" 
                      target="_blank" 
-                     class="download-link" 
-                     title="Download file">⬇️</a>
-                </span>
+                     class="download-btn-card" 
+                     title="Download file">
+                    ⬇️ Download
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -153,7 +164,7 @@
                     id="attachments" 
                     @change="handleFileSelect" 
                     multiple 
-                    accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
+                    accept=".pdf,.doc,.docx,.txt,.rtf,.odt,.pages,.tex,.md,.markdown,.ppt,.pptx,.odp,.key,.xls,.xlsx,.ods,.numbers,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg,.tiff,.tif,.ico,.heic,.heif,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus,.mp4,.avi,.mov,.wmv,.flv,.webm,.mkv,.m4v,.3gp,.js,.ts,.jsx,.tsx,.py,.java,.c,.cpp,.cs,.php,.rb,.go,.rs,.swift,.kt,.scala,.html,.htm,.css,.scss,.sass,.less,.xml,.yaml,.yml,.toml,.ini,.cfg,.conf,.sql,.sh,.bat,.ps1,.r,.m,.pl,.lua,.dart,.elm,.clj,.hs,.ml,.fs,.vb,.json,.csv,.tsv,.parquet,.avro,.jsonl,.ndjson,.zip,.rar,.7z,.tar,.gz,.bz2,.xz,.epub,.mobi,.azw,.fb2,.djvu,.cbr,.cbz"
                     class="file-input"
                   />
                   <label for="attachments" class="file-upload-label">
@@ -421,9 +432,9 @@ async function saveMaterial() {
       // Add files and descriptions
       selectedFiles.value.forEach((file, index) => {
         formData.append('files', file)
-        if (fileDescriptions.value[index]) {
-          formData.append('attachmentDescriptions', fileDescriptions.value[index])
-        }
+        // Always append a description, even if empty, to maintain index alignment
+        const description = fileDescriptions.value[index] || ''
+        formData.append('attachmentDescriptions', description)
       })
 
       const response = await fetch(apiUrl, {
@@ -1341,6 +1352,95 @@ function formatDate(dateString) {
   border-radius: 4px;
   font-size: 11px;
   color: #374151;
+}
+
+/* New enhanced attachment display styles */
+.attachments-section-card {
+  margin-top: 16px;
+  padding: 12px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  border-left: 4px solid #3b82f6;
+}
+
+.attachments-header {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.attachment-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attachment-item-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.attachment-item-display:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1);
+}
+
+.attachment-info-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.attachment-icon {
+  font-size: 16px;
+  opacity: 0.7;
+}
+
+.attachment-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attachment-name-display {
+  font-weight: 500;
+  color: #374151;
+  font-size: 13px;
+}
+
+.attachment-size-display {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.download-btn-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.download-btn-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  color: white;
 }
 
 .attachment-name {

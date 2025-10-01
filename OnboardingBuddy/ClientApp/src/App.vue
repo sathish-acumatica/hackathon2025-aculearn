@@ -1,7 +1,7 @@
 <template>
   <div id="app">
     <nav class="app-nav">
-      <div class="nav-brand">
+      <div class="nav-brand" @click="handleBrandClick">
         <div class="brand-icon">
           <img src="/onboarding-buddy-icon.svg" alt="AcuBuddy" />
         </div>
@@ -27,6 +27,20 @@
 
 <script setup>
 // Main App component
+
+// Handler for clicking the brand/logo to reload page and start new session
+function handleBrandClick() {
+  // Clear any session storage to ensure a fresh session
+  try {
+    sessionStorage.clear()
+    console.log('Cleared session storage for new session')
+  } catch (error) {
+    console.warn('Could not clear session storage:', error)
+  }
+  
+  // Force reload the page to start a completely new session
+  window.location.reload()
+}
 </script>
 
 <style>
@@ -66,6 +80,15 @@ body {
   display: flex;
   align-items: center;
   gap: 15px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 8px 12px;
+  border-radius: 12px;
+}
+
+.nav-brand:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
 }
 
 .brand-icon {

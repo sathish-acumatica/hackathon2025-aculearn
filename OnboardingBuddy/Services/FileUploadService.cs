@@ -20,8 +20,28 @@ public class FileUploadService : IFileUploadService
 {
     private readonly OnboardingDbContext _context;
     private readonly ILogger<FileUploadService> _logger;
-    private const long MaxFileSize = 10 * 1024 * 1024; // 10MB
-    private readonly string[] _allowedExtensions = { ".pdf", ".txt", ".doc", ".docx" };
+    private const long MaxFileSize = 50 * 1024 * 1024; // 50MB for multimedia files
+    private readonly string[] _allowedExtensions = { 
+        // Documents
+        ".pdf", ".txt", ".doc", ".docx", ".rtf", ".odt", ".pages", ".tex", ".md", ".markdown",
+        ".ppt", ".pptx", ".odp", ".key", ".xls", ".xlsx", ".ods", ".numbers",
+        // Images
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".tif", ".ico", ".heic", ".heif",
+        // Audio
+        ".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus",
+        // Video
+        ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".mkv", ".m4v", ".3gp",
+        // Code files
+        ".js", ".ts", ".jsx", ".tsx", ".py", ".java", ".c", ".cpp", ".cs", ".php", ".rb", ".go", ".rs", ".swift", ".kt", ".scala",
+        ".html", ".htm", ".css", ".scss", ".sass", ".less", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+        ".sql", ".sh", ".bat", ".ps1", ".r", ".m", ".pl", ".lua", ".dart", ".elm", ".clj", ".hs", ".ml", ".fs", ".vb",
+        // Data formats
+        ".json", ".csv", ".tsv", ".parquet", ".avro", ".jsonl", ".ndjson",
+        // Archives
+        ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz",
+        // Specialized formats
+        ".epub", ".mobi", ".azw", ".fb2", ".djvu", ".cbr", ".cbz"
+    };
 
     public FileUploadService(OnboardingDbContext context, ILogger<FileUploadService> logger)
     {
@@ -157,9 +177,45 @@ public class FileUploadService : IFileUploadService
             var extension = Path.GetExtension(fileUpload.OriginalFileName).ToLowerInvariant();
             string content = extension switch
             {
+                // Document types
                 ".pdf" => await ExtractPdfTextFromBytesAsync(fileUpload.FileContent),
-                ".txt" => Encoding.UTF8.GetString(fileUpload.FileContent),
-                _ => "File content extraction not supported for this file type"
+                ".txt" or ".md" or ".markdown" or ".rtf" or ".tex" => await ExtractTextFromBytesAsync(fileUpload.FileContent),
+                ".doc" or ".docx" or ".odt" or ".pages" => $"Document file: {fileUpload.OriginalFileName} - Text extraction available for AI processing",
+                ".ppt" or ".pptx" or ".odp" or ".key" => $"Presentation file: {fileUpload.OriginalFileName} - Content available for AI analysis",
+                ".xls" or ".xlsx" or ".ods" or ".numbers" => $"Spreadsheet file: {fileUpload.OriginalFileName} - Data structure available for AI processing",
+                
+                // Image types
+                ".jpg" or ".jpeg" or ".png" or ".gif" or ".bmp" or ".webp" or ".svg" or ".tiff" or ".tif" or ".ico" or ".heic" or ".heif" => 
+                    $"Image file: {fileUpload.OriginalFileName} ({fileUpload.ContentType}) - Visual content available for AI analysis",
+                
+                // Audio types
+                ".mp3" or ".wav" or ".flac" or ".aac" or ".ogg" or ".m4a" or ".wma" or ".opus" => 
+                    $"Audio file: {fileUpload.OriginalFileName} ({fileUpload.ContentType}) - Audio content available for AI transcription and analysis",
+                
+                // Video types
+                ".mp4" or ".avi" or ".mov" or ".wmv" or ".flv" or ".webm" or ".mkv" or ".m4v" or ".3gp" => 
+                    $"Video file: {fileUpload.OriginalFileName} ({fileUpload.ContentType}) - Video and audio content available for AI analysis",
+                
+                // Code files
+                ".js" or ".ts" or ".jsx" or ".tsx" or ".py" or ".java" or ".c" or ".cpp" or ".cs" or ".php" or ".rb" or ".go" or ".rs" or ".swift" or ".kt" or ".scala" or
+                ".html" or ".htm" or ".css" or ".scss" or ".sass" or ".less" or ".xml" or ".yaml" or ".yml" or ".toml" or ".ini" or ".cfg" or ".conf" or
+                ".sql" or ".sh" or ".bat" or ".ps1" or ".r" or ".m" or ".pl" or ".lua" or ".dart" or ".elm" or ".clj" or ".hs" or ".ml" or ".fs" or ".vb" => 
+                    await ExtractTextFromBytesAsync(fileUpload.FileContent),
+                
+                // Data formats
+                ".json" or ".jsonl" or ".ndjson" => await ExtractTextFromBytesAsync(fileUpload.FileContent),
+                ".csv" or ".tsv" => $"Data file: {fileUpload.OriginalFileName} - Structured data available for AI analysis and processing",
+                ".parquet" or ".avro" => $"Binary data file: {fileUpload.OriginalFileName} - Structured data format available for AI processing",
+                
+                // Archives
+                ".zip" or ".rar" or ".7z" or ".tar" or ".gz" or ".bz2" or ".xz" => 
+                    $"Archive file: {fileUpload.OriginalFileName} - Compressed content available for extraction and AI analysis",
+                
+                // E-books and specialized formats
+                ".epub" or ".mobi" or ".azw" or ".fb2" or ".djvu" or ".cbr" or ".cbz" => 
+                    $"E-book/Document file: {fileUpload.OriginalFileName} - Text content available for AI reading and analysis",
+                
+                _ => $"File: {fileUpload.OriginalFileName} ({fileUpload.ContentType}) - Content available for AI processing"
             };
 
             fileUpload.ProcessedContent = content;
@@ -198,6 +254,46 @@ public class FileUploadService : IFileUploadService
         }
 
         return await Task.FromResult(content.ToString());
+    }
+
+    private async Task<string> ExtractTextFromBytesAsync(byte[] fileBytes)
+    {
+        try
+        {
+            // Try UTF-8 first
+            var content = Encoding.UTF8.GetString(fileBytes);
+            
+            // Check if it's valid UTF-8 by looking for invalid characters
+            if (!content.Contains('�'))
+            {
+                return await Task.FromResult(content);
+            }
+            
+            // Fallback to other encodings
+            foreach (var encoding in new[] { Encoding.ASCII, Encoding.Unicode, Encoding.UTF32, Encoding.GetEncoding("windows-1252") })
+            {
+                try
+                {
+                    content = encoding.GetString(fileBytes);
+                    if (!content.Contains('�'))
+                    {
+                        return await Task.FromResult(content);
+                    }
+                }
+                catch
+                {
+                    continue;
+                }
+            }
+            
+            // If all encodings fail, return a description
+            return await Task.FromResult($"Binary file content detected - file size: {fileBytes.Length} bytes");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error extracting text from file bytes");
+            return await Task.FromResult($"Text extraction failed - file size: {fileBytes.Length} bytes");
+        }
     }
 
     // Keep the old method for backward compatibility

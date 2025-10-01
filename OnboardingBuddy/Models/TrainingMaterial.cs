@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace OnboardingBuddy.Models;
 
@@ -25,6 +26,7 @@ public class TrainingMaterial
     public DateTime? UpdatedAt { get; set; }
     
     // Navigation property for attachments
+    [JsonIgnore]
     public virtual ICollection<TrainingMaterialAttachment> Attachments { get; set; } = new List<TrainingMaterialAttachment>();
 }
 

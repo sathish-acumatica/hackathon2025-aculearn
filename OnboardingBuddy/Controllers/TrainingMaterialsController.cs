@@ -58,7 +58,7 @@ public class TrainingMaterialsController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<TrainingMaterial>> Create([FromBody] TrainingMaterialRequest request)
+    public async Task<ActionResult<TrainingMaterialResponse>> Create([FromBody] TrainingMaterialRequest request)
     {
         try
         {
@@ -68,7 +68,10 @@ public class TrainingMaterialsController : ControllerBase
             }
 
             var material = await _trainingService.CreateAsync(request);
-            return CreatedAtAction(nameof(GetById), new { id = material.Id }, material);
+            
+            // Return the response DTO to avoid circular references
+            var response = await _trainingService.GetByIdAsync(material.Id);
+            return CreatedAtAction(nameof(GetById), new { id = material.Id }, response);
         }
         catch (Exception ex)
         {
@@ -78,17 +81,25 @@ public class TrainingMaterialsController : ControllerBase
     }
 
     [HttpPost("with-attachments")]
-    public async Task<ActionResult<TrainingMaterial>> CreateWithAttachments([FromForm] TrainingMaterialWithAttachmentsRequest request)
+    public async Task<ActionResult<TrainingMaterialResponse>> CreateWithAttachments([FromForm] TrainingMaterialWithAttachmentsRequest request)
     {
         try
         {
+            _logger.LogInformation("Received request with {FileCount} files and {DescriptionCount} descriptions", 
+                request.Files?.Count ?? 0, request.AttachmentDescriptions?.Count ?? 0);
+            
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("Model state is invalid: {Errors}", 
+                    string.Join(", ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage)));
                 return BadRequest(ModelState);
             }
 
             var material = await _trainingService.CreateWithAttachmentsAsync(request, _fileUploadService);
-            return CreatedAtAction(nameof(GetById), new { id = material.Id }, material);
+            
+            // Return the response DTO to avoid circular references
+            var response = await _trainingService.GetByIdAsync(material.Id);
+            return CreatedAtAction(nameof(GetById), new { id = material.Id }, response);
         }
         catch (Exception ex)
         {
@@ -98,7 +109,7 @@ public class TrainingMaterialsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    public async Task<ActionResult<TrainingMaterial>> Update(int id, [FromBody] TrainingMaterialRequest request)
+    public async Task<ActionResult<TrainingMaterialResponse>> Update(int id, [FromBody] TrainingMaterialRequest request)
     {
         try
         {
@@ -113,7 +124,9 @@ public class TrainingMaterialsController : ControllerBase
                 return NotFound();
             }
 
-            return Ok(material);
+            // Return the response DTO to avoid circular references
+            var response = await _trainingService.GetByIdAsync(id);
+            return Ok(response);
         }
         catch (Exception ex)
         {
@@ -123,12 +136,38 @@ public class TrainingMaterialsController : ControllerBase
     }
 
     [HttpPut("{id}/with-attachments")]
-    public async Task<ActionResult<TrainingMaterial>> UpdateWithAttachments(int id, [FromForm] TrainingMaterialWithAttachmentsRequest request)
+    public async Task<ActionResult<TrainingMaterialResponse>> UpdateWithAttachments(int id, [FromForm] TrainingMaterialWithAttachmentsRequest request)
     {
         try
         {
+            _logger.LogInformation("=== DEBUGGING: Received update request for material {Id} ===", id);
+            _logger.LogInformation("Files count: {FileCount}", request.Files?.Count ?? 0);
+            _logger.LogInformation("AttachmentDescriptions count: {DescriptionCount}", request.AttachmentDescriptions?.Count ?? 0);
+            _logger.LogInformation("Title: '{Title}'", request.Title ?? "NULL");
+            _logger.LogInformation("Category: '{Category}'", request.Category ?? "NULL");
+            _logger.LogInformation("Content length: {ContentLength}", request.Content?.Length ?? 0);
+            _logger.LogInformation("IsActive: {IsActive}", request.IsActive);
+            _logger.LogInformation("InternalNotes: '{InternalNotes}'", request.InternalNotes ?? "NULL");
+            
+            // Log FormData keys for debugging
+            _logger.LogInformation("Request ContentType: {ContentType}", Request.ContentType);
+            if (Request.HasFormContentType)
+            {
+                _logger.LogInformation("Form keys: {Keys}", string.Join(", ", Request.Form.Keys));
+                foreach (var key in Request.Form.Keys)
+                {
+                    _logger.LogInformation("Form[{Key}] = '{Value}'", key, Request.Form[key]);
+                }
+            }
+                
             if (!ModelState.IsValid)
             {
+                _logger.LogWarning("=== MODEL STATE INVALID for material {Id} ===", id);
+                foreach (var error in ModelState)
+                {
+                    _logger.LogWarning("Field: '{Field}', Errors: [{Errors}]", error.Key, 
+                        string.Join(", ", error.Value.Errors.Select(e => e.ErrorMessage)));
+                }
                 return BadRequest(ModelState);
             }
 
@@ -138,7 +177,9 @@ public class TrainingMaterialsController : ControllerBase
                 return NotFound();
             }
 
-            return Ok(material);
+            // Return the response DTO to avoid circular references
+            var response = await _trainingService.GetByIdAsync(id);
+            return Ok(response);
         }
         catch (Exception ex)
         {

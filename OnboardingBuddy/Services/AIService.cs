@@ -48,15 +48,40 @@ public class AIService : IAIService
                 return await GetFallbackResponseAsync(message);
             }
 
-            var (materials, trainingContext) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
+            // Check if session has training context loaded
+            var hasTrainingContext = await _sessionService.HasTrainingContextAsync(sessionId);
             
-            var requestPayload = CreateRequestPayload(message, trainingContext, null);
+            string trainingContext;
+            if (!hasTrainingContext)
+            {
+                // First message in session - load training materials
+                var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
+                await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
+                trainingContext = context;
+                
+                _logger.LogInformation("Loaded training context for new session {SessionId} with {MaterialCount} materials", 
+                    sessionId, materials.Count);
+            }
+            else
+            {
+                // Use cached training context
+                trainingContext = await _sessionService.GetCachedTrainingContextAsync(sessionId) ?? "";
+                _logger.LogInformation("Using cached training context for session {SessionId}", sessionId);
+            }
+            
+            // Get conversation history
+            var conversationHistory = await _sessionService.GetConversationHistoryAsync(sessionId);
+            
+            var requestPayload = CreateRequestPayloadWithHistory(message, trainingContext, conversationHistory);
             var response = await SendAIRequestAsync(requestPayload);
             
             var result = ExtractResponseText(response);
             
-            _logger.LogInformation("Processed message for session {SessionId} with {MaterialCount} materials", 
-                sessionId, materials.Count);
+            // Store the conversation turn
+            await _sessionService.AddConversationTurnAsync(sessionId, message, result);
+            
+            _logger.LogInformation("Processed message for session {SessionId} with conversation history ({HistoryCount} messages)", 
+                sessionId, conversationHistory.Count);
             
             return result;
         }
@@ -169,6 +194,42 @@ public class AIService : IAIService
             {
                 new { role = "user", content = message }
             }
+        };
+    }
+
+    private object CreateRequestPayloadWithHistory(string message, string context, List<string> conversationHistory)
+    {
+        var systemPrompt = BuildSystemPrompt(context);
+        
+        // Build messages array with conversation history
+        var messages = new List<object>();
+        
+        // Add conversation history
+        for (int i = 0; i < conversationHistory.Count; i += 2)
+        {
+            if (i + 1 < conversationHistory.Count)
+            {
+                // Extract actual content without "Human:" and "Assistant:" prefixes
+                var userMsg = conversationHistory[i].StartsWith("Human: ") ? 
+                    conversationHistory[i].Substring(7) : conversationHistory[i];
+                var assistantMsg = conversationHistory[i + 1].StartsWith("Assistant: ") ? 
+                    conversationHistory[i + 1].Substring(11) : conversationHistory[i + 1];
+                    
+                messages.Add(new { role = "user", content = userMsg });
+                messages.Add(new { role = "assistant", content = assistantMsg });
+            }
+        }
+        
+        // Add current message
+        messages.Add(new { role = "user", content = message });
+        
+        return new
+        {
+            model = _config.Model,
+            max_tokens = _config.MaxTokens,
+            temperature = _config.Temperature,
+            system = systemPrompt,
+            messages = messages.ToArray()
         };
     }
 

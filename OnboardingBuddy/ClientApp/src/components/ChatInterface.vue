@@ -61,7 +61,7 @@
           type="file"
           multiple
           @change="onFileSelected"
-          accept=".pdf,.txt,.doc,.docx"
+          accept=".pdf,.doc,.docx,.txt,.rtf,.odt,.pages,.tex,.md,.markdown,.ppt,.pptx,.odp,.key,.xls,.xlsx,.ods,.numbers,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg,.tiff,.tif,.ico,.heic,.heif,.mp3,.wav,.flac,.aac,.ogg,.m4a,.wma,.opus,.mp4,.avi,.mov,.wmv,.flv,.webm,.mkv,.m4v,.3gp,.js,.ts,.jsx,.tsx,.py,.java,.c,.cpp,.cs,.php,.rb,.go,.rs,.swift,.kt,.scala,.html,.htm,.css,.scss,.sass,.less,.xml,.yaml,.yml,.toml,.ini,.cfg,.conf,.sql,.sh,.bat,.ps1,.r,.m,.pl,.lua,.dart,.elm,.clj,.hs,.ml,.fs,.vb,.json,.csv,.tsv,.parquet,.avro,.jsonl,.ndjson,.zip,.rar,.7z,.tar,.gz,.bz2,.xz,.epub,.mobi,.azw,.fb2,.djvu,.cbr,.cbz"
           style="display: none"
         />
         <button
@@ -113,6 +113,7 @@ import * as signalR from '@microsoft/signalr'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { buildSignalRUrl, buildApiUrl, debugPaths } from '../utils/pathUtils.js'
+import { getBrowserSessionId, keepSessionAlive, getSessionInfo } from '../utils/sessionUtils.js'
 
 // Reactive data
 const messages = ref([])
@@ -125,7 +126,9 @@ const fileInput = ref(null)
 
 // SignalR connection
 let connection = null
-let sessionId = generateSessionId()
+let sessionId = getBrowserSessionId() // Use persistent browser session
+
+const chatSessionInfo = ref(getSessionInfo())
 
 // Configure marked for better markdown rendering
 marked.setOptions({
@@ -282,9 +285,43 @@ async function initializeSignalR() {
     scrollToBottom()
   })
 
+  connection.on('ConversationHistory', (history) => {
+    console.log('Received conversation history:', history)
+    // Clear existing messages and populate with history
+    messages.value = []
+    
+    history.forEach(msg => {
+      const message = {
+        id: msg.id,
+        text: msg.text,
+        html: msg.isUser ? msg.text : processMarkdownWithImages(msg.text),
+        isUser: msg.isUser,
+        timestamp: new Date(msg.timestamp)
+      }
+      messages.value.push(message)
+    })
+    
+    scrollToBottom()
+  })
+
   try {
     await connection.start()
     console.log(`SignalR connection started to: ${hubUrl}`)
+    
+    // Register our browser session ID with the SignalR hub first
+    await connection.invoke('RegisterBrowserSession', sessionId)
+    console.log(`Registered browser session: ${sessionId}`)
+    
+    // Add a small delay to allow welcome message to be processed first
+    setTimeout(async () => {
+      try {
+        // Request conversation history for this session
+        await connection.invoke('GetConversationHistory')
+        console.log('Requested conversation history')
+      } catch (err) {
+        console.error('Error requesting conversation history:', err)
+      }
+    }, 100)
   } catch (err) {
     console.error('SignalR connection error:', err)
   }
@@ -298,6 +335,9 @@ async function sendMessage() {
   if (!newMessage.value.trim() && !selectedFiles.value.length) return
 
   const messageText = newMessage.value.trim()
+  
+  // Keep session alive on user activity
+  keepSessionAlive()
   
   // Add user message
   const userMessage = {
@@ -968,5 +1008,21 @@ function setupDragAndDrop() {
   .image-preview-img {
     max-height: 70vh;
   }
+}
+
+/* Session info for development */
+.session-info-dev {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  text-align: center;
+  font-family: monospace;
+  color: #666;
+  border: 1px dashed #ccc;
+}
+
+.session-info-dev small {
+  font-size: 11px;
 }
 </style>

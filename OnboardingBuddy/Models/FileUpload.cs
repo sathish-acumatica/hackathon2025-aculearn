@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace OnboardingBuddy.Models
 {
@@ -18,6 +19,7 @@ namespace OnboardingBuddy.Models
         public long FileSizeBytes { get; set; }
         
         // Store file content directly in database instead of file path
+        [JsonIgnore]
         public byte[] FileContent { get; set; } = Array.Empty<byte>();
         
         // Keep FilePath for backward compatibility (can be removed later)
@@ -34,6 +36,7 @@ namespace OnboardingBuddy.Models
         public string? ProcessingError { get; set; }
         
         // Navigation property for training material attachments
+        [JsonIgnore]
         public virtual ICollection<TrainingMaterialAttachment> TrainingMaterialAttachments { get; set; } = new List<TrainingMaterialAttachment>();
     }
 

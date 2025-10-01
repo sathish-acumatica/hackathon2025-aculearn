@@ -327,9 +327,31 @@ public class TrainingMaterialService : ITrainingMaterialService
 
     private List<TrainingMaterial> FilterRelevantMaterials(List<TrainingMaterial> materials, string userQuery)
     {
+        // For initial session context loading, prioritize system prompts and core materials
         if (string.IsNullOrWhiteSpace(userQuery))
-            return materials.Take(5).ToList(); // Return first 5 if no query
+        {
+            // Get system prompts first, then core onboarding materials
+            var systemPrompts = materials.Where(m => m.Category.ToLower().Contains("system")).ToList();
+            var coreOnboarding = materials.Where(m => 
+                m.Category.ToLower().Contains("onboarding") || 
+                m.Category.ToLower().Contains("welcome") ||
+                m.Title.ToLower().Contains("welcome") ||
+                m.Title.ToLower().Contains("getting started")).ToList();
+            
+            var initialMaterials = systemPrompts.Concat(coreOnboarding).Distinct().Take(8).ToList();
+            
+            // If we don't have enough, add more general materials
+            if (initialMaterials.Count < 5)
+            {
+                var additional = materials.Except(initialMaterials).Take(5 - initialMaterials.Count);
+                initialMaterials.AddRange(additional);
+            }
+            
+            _logger.LogInformation("Selected {Count} initial materials for session context", initialMaterials.Count);
+            return initialMaterials;
+        }
 
+        // For subsequent queries, use relevance scoring
         var queryLower = userQuery.ToLowerInvariant();
         var keywords = queryLower.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
