@@ -397,29 +397,34 @@ public class ConversationSession
     
     /// <summary>
     /// Determines if context should be refreshed for OpenAI Responses API
-    /// Since we don't cache, we always have fresh context from DB
+    /// Token-efficient approach: only refresh when truly necessary
     /// </summary>
     public bool ShouldRefreshContext()
     {
-        // Since we always read fresh from DB, only refresh for:
-        // 1. Very long conversations (more than 20 turns)
-        // 2. No recent activity (more than 1 hour since last message)
-        
         var now = DateTime.UtcNow;
         
-        // Check if conversation is getting too long
-        if (ConversationHistory.Count > 20)
+        // Refresh context only when absolutely necessary to save tokens:
+        
+        // 1. Very long conversations (more than 15 turns) - helps with token limits
+        if (ConversationHistory.Count > 15)
         {
             return true;
         }
         
-        // Check if there's been a long gap in conversation
+        // 2. Long gap in conversation (more than 2 hours) - context may be stale
         if (ConversationHistory.Any() &&
-            now.Subtract(ConversationHistory.Last().Timestamp).TotalHours > 1)
+            now.Subtract(ConversationHistory.Last().Timestamp).TotalHours > 2)
         {
             return true;
         }
         
+        // 3. First few messages - don't refresh to let conversation establish
+        if (ConversationHistory.Count <= 3)
+        {
+            return false;
+        }
+        
+        // Otherwise, trust the Responses API's conversation management
         return false;
     }
 }

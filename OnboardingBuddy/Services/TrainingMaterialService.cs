@@ -19,6 +19,7 @@ public interface ITrainingMaterialService
     Task<IEnumerable<TrainingMaterial>> GetByCategoryAsync(string category);
     Task<string> GetTrainingContextForAI(string userQuery);
     Task<(List<TrainingMaterial> materials, string context)> GetSessionContextAsync(string sessionId, string userQuery, ISessionService sessionService);
+    Task<(List<TrainingMaterial> materials, string context)> GetAllActiveTrainingMaterialsWithContextAsync();
 }
 
 public class TrainingMaterialService : ITrainingMaterialService
@@ -456,5 +457,30 @@ public class TrainingMaterialService : ITrainingMaterialService
         }
 
         return string.Join("\n\n", contextParts);
+    }
+
+    public async Task<(List<TrainingMaterial> materials, string context)> GetAllActiveTrainingMaterialsWithContextAsync()
+    {
+        try
+        {
+            var materials = await _context.TrainingMaterials
+                .Include(m => m.Attachments)
+                    .ThenInclude(a => a.FileUpload)
+                .Where(m => m.IsActive)
+                .OrderBy(m => m.Category)
+                .ThenBy(m => m.Title)
+                .ToListAsync();
+
+            var context = BuildContextStringWithAttachments(materials);
+
+            _logger.LogInformation("Retrieved ALL {Count} active training materials with full context", materials.Count);
+
+            return (materials, context);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting all active training materials with context");
+            return (new List<TrainingMaterial>(), string.Empty);
+        }
     }
 }

@@ -562,7 +562,7 @@ async function saveMaterial() {
         console.log('Material saved with attachments:', savedMaterial)
         
         // Show success toast
-        showToast(isEditMode.value ? `Training material "${savedMaterial.title}" updated successfully!` : `Training material "${savedMaterial.title}" created successfully!`, 'success')
+        showToast(showEditModal.value ? `Training material "${savedMaterial.title}" updated successfully!` : `Training material "${savedMaterial.title}" created successfully!`, 'success')
         
         // Reload materials to get updated attachment info
         await loadMaterials()

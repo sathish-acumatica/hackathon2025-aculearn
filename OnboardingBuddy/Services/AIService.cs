@@ -48,16 +48,35 @@ public class AIService : IAIService
                 return await GetFallbackResponseAsync(message);
             }
 
-            // Always read fresh training materials from database - no caching
-            var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
-            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
-            var trainingContext = context;
-            
-            _logger.LogInformation("Loaded fresh training context for session {SessionId} with {MaterialCount} materials from database", 
-                sessionId, materials.Count);
-            
-            // Get conversation history
+            // Get conversation history to determine if this is the first message
             var conversationHistory = await _sessionService.GetConversationHistoryAsync(sessionId);
+            var isFirstMessage = conversationHistory.Count == 0;
+
+            string trainingContext;
+            List<TrainingMaterial> materials;
+
+            if (isFirstMessage)
+            {
+                // FIRST MESSAGE: Load ALL active training materials to establish complete context
+                var (allMaterials, fullContext) = await _trainingService.GetAllActiveTrainingMaterialsWithContextAsync();
+                materials = allMaterials;
+                trainingContext = fullContext;
+                
+                _logger.LogInformation("FIRST MESSAGE: Loaded ALL {MaterialCount} active training materials from database for session {SessionId}", 
+                    materials.Count, sessionId);
+            }
+            else
+            {
+                // Subsequent messages: Use filtered materials for token efficiency
+                var (filteredMaterials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
+                materials = filteredMaterials;
+                trainingContext = context;
+                
+                _logger.LogInformation("Loaded {MaterialCount} filtered training materials from database for session {SessionId}", 
+                    materials.Count, sessionId);
+            }
+
+            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, trainingContext);
             
             var requestPayload = await CreateRequestPayloadWithHistory(message, trainingContext, conversationHistory, sessionId);
             var response = await SendAIRequestAsync(requestPayload);
@@ -107,21 +126,42 @@ public class AIService : IAIService
                 return await GetFallbackResponseAsync(message);
             }
 
-            // Always read fresh training materials from database - no caching
-            var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
-            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
-            var trainingContext = context;
-            
-            _logger.LogInformation("Loaded fresh training context for file processing session {SessionId} with {MaterialCount} materials from database", 
-                sessionId, materials.Count);
+            // Get conversation history to determine if this is the first message
+            var conversationHistory = await _sessionService.GetConversationHistoryAsync(sessionId);
+            var isFirstMessage = conversationHistory.Count == 0;
+
+            string trainingContext;
+            List<TrainingMaterial> materials;
+
+            if (isFirstMessage)
+            {
+                // FIRST MESSAGE: Load ALL active training materials to establish complete context
+                var (allMaterials, fullContext) = await _trainingService.GetAllActiveTrainingMaterialsWithContextAsync();
+                materials = allMaterials;
+                trainingContext = fullContext;
+                
+                _logger.LogInformation("FIRST MESSAGE WITH FILES: Loaded ALL {MaterialCount} active training materials from database for session {SessionId}", 
+                    materials.Count, sessionId);
+            }
+            else
+            {
+                // Subsequent messages: Use filtered materials for token efficiency
+                var (filteredMaterials, context) = await _trainingService.GetSessionContextAsync(sessionId, message, _sessionService);
+                materials = filteredMaterials;
+                trainingContext = context;
+                
+                _logger.LogInformation("Loaded {MaterialCount} filtered training materials from database for session {SessionId} with files", 
+                    materials.Count, sessionId);
+            }
+
+            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, trainingContext);
             
             var fileContext = BuildFileContext(files ?? new List<FileUpload>());
             var enhancedContext = string.IsNullOrWhiteSpace(trainingContext) 
                 ? fileContext 
                 : $"{trainingContext}\n\nAttached Files:\n{fileContext}";
             
-            // Get conversation history for files messages too
-            var conversationHistory = await _sessionService.GetConversationHistoryAsync(sessionId);
+            // conversationHistory is already available from the top of the method
             
             var requestPayload = CreateRequestPayloadWithHistoryAndFiles(message, enhancedContext ?? "", conversationHistory, files ?? new List<FileUpload>());
             var response = await SendAIRequestAsync(requestPayload);
@@ -164,13 +204,13 @@ public class AIService : IAIService
                 return GetDefaultWelcomeMessage();
             }
 
-            // Always read fresh training materials from database - no caching
-            var (materials, context) = await _trainingService.GetSessionContextAsync(sessionId, string.Empty, _sessionService);
-            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, context);
-            var trainingContext = context;
+            // WELCOME MESSAGE: Load ALL active training materials to establish complete context
+            var (allMaterials, fullContext) = await _trainingService.GetAllActiveTrainingMaterialsWithContextAsync();
+            await _sessionService.LoadTrainingContextForSessionAsync(sessionId, fullContext);
+            var trainingContext = fullContext;
             
-            _logger.LogInformation("Loaded fresh training context for welcome generation in session {SessionId} with {MaterialCount} materials from database", 
-                sessionId, materials.Count);
+            _logger.LogInformation("WELCOME MESSAGE: Loaded ALL {MaterialCount} active training materials from database for session {SessionId}", 
+                allMaterials.Count, sessionId);
 
             // If no training materials available, fall back to hardcoded welcome
             if (string.IsNullOrWhiteSpace(trainingContext))
@@ -690,19 +730,37 @@ IMPORTANT RESPONSE FORMATTING RULES:
 - Your entire response should be valid HTML that can be inserted directly into a web page
 - Make responses visually appealing with proper HTML structure and formatting
 
-CRITICAL KNOWLEDGE RESTRICTIONS:
+CRITICAL KNOWLEDGE RESTRICTIONS AND CONTEXT USAGE:
 - You MUST ONLY use information from the training materials provided in the context above
+- ALWAYS reference and cite the specific training materials when answering questions
 - DO NOT access any external knowledge, web searches, or information outside of the training materials
+- For EVERY response, you must actively reference the training materials provided in the context
+- When answering questions, explicitly mention which training material or section you're referencing
 - If a user asks about something not covered in the training materials, politely explain that you can only help with topics covered in the provided onboarding materials
 - Never make up information or provide answers from your general knowledge base
-- Always base your responses strictly on the content from the training materials
+- Always base your responses strictly on the content from the training materials above
 - If the training materials don't contain sufficient information to answer a question, say so explicitly
 - Examples of appropriate responses when information is not available:
   - 'I don't have information about that topic in the current training materials. Please check with your manager or HR for details.'
   - 'The training materials provided don't cover that specific question. You may want to consult the employee handbook or contact HR.'
-  - 'That information isn't included in the onboarding materials I have access to. Please reach out to your supervisor for guidance.'";
+  - 'That information isn't included in the onboarding materials I have access to. Please reach out to your supervisor for guidance.'
+
+CONTEXT REFERENCE REQUIREMENT:
+- In every response, you must actively use and reference the specific training materials provided above
+- When providing information, explicitly mention which training material section you're drawing from
+- This ensures your responses are grounded in the actual company onboarding content provided";
 
         return basePrompt + formattingInstructions;
+    }
+
+    private string BuildLightweightRefreshInstruction()
+    {
+        return @"Please continue helping with onboarding questions using the training materials and company information from our established conversation context. 
+Remember to:
+- Reference specific training materials when answering
+- Use only the company onboarding information we've been discussing
+- Format responses in HTML as established
+- If information isn't available in our training materials, acknowledge this limitation";
     }
 
     private async Task StoreOpenAIResponseIds(string jsonResponse, string sessionId)
@@ -747,37 +805,38 @@ CRITICAL KNOWLEDGE RESTRICTIONS:
             ["store"] = _config.StoreConversations
         };
 
-        // Input - support for simple string or complex array
+        // Input - the current user message
         payload["input"] = message;
 
-        // Conversation state management - OPTIMIZED for stateful API
+        // Conversation state management - OPTIMIZED for token efficiency
         if (!string.IsNullOrEmpty(session.OpenAIConversationId))
         {
-            // Subsequent messages - conversation ID maintains all context
-            // NO need to send training data again!
+            // Subsequent messages - conversation ID maintains all context including training materials
+            // This is the most token-efficient approach
             payload["conversation"] = session.OpenAIConversationId;
+            
+            // Only send lightweight instructions if context needs refreshing (long conversation or context switch)
+            if (session.ShouldRefreshContext())
+            {
+                payload["instructions"] = BuildLightweightRefreshInstruction();
+            }
         }
         else if (!string.IsNullOrEmpty(session.LastOpenAIResponseId))
         {
-            // Chain from previous response - context is maintained
-            // NO need to send full training data again!
+            // Chain from previous response - context is maintained efficiently
             payload["previous_response_id"] = session.LastOpenAIResponseId;
             
-            // Only send instructions if this is a context switch or new topic
-            // For normal conversation flow, previous context is preserved
+            // Only send lightweight instructions if this is a context switch or significant gap
             if (session.ShouldRefreshContext())
             {
-                payload["instructions"] = "Continue helping with onboarding questions using previous context.";
+                payload["instructions"] = BuildLightweightRefreshInstruction();
             }
         }
         else
         {
-            // First message ONLY (no conversation / previous response state):
-            // Use dedicated 'instructions' field for system / training context so that
-            // 'input' remains purely the latest user message. This avoids blending
-            // persona + user content and aligns with OpenAI Responses API best practices.
+            // First message ONLY - send full training context
+            // This establishes the knowledge base for the entire conversation
             payload["instructions"] = systemPrompt;
-            payload["input"] = message; // keep user content clean
         }
 
         // Advanced parameters
